@@ -615,25 +615,6 @@ impl State {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compare_jobs_make_fixed_memory_explicit() {
-        let invocation =
-            with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Fixed);
-        assert_eq!(invocation.args, vec!["--dram".to_string(), "fixed".to_string()]);
-    }
-
-    #[test]
-    fn compare_jobs_keep_non_fixed_memory_explicit() {
-        let invocation =
-            with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Lpddr5);
-        assert_eq!(invocation.args, vec!["--dram".to_string(), "lpddr5".to_string()]);
-    }
-}
-
 fn radios<'a>(
     opts: &[(&'static str, &'static str)],
     sel: &'static str,
@@ -666,4 +647,21 @@ fn caches_table<'a>(rows: Vec<(String, crate::model::Cache)>) -> Element<'a, Msg
     .padding_x(10)
     .padding_y(2)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_jobs_make_fixed_memory_explicit() {
+        let invocation = with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Fixed);
+        assert_eq!(invocation.args, vec!["--dram".to_string(), "fixed".to_string()]);
+    }
+
+    #[test]
+    fn compare_jobs_keep_non_fixed_memory_explicit() {
+        let invocation = with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Lpddr5);
+        assert_eq!(invocation.args, vec!["--dram".to_string(), "lpddr5".to_string()]);
+    }
 }
