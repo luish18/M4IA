@@ -1,6 +1,18 @@
 # Plan — CVA6 manager + Snitch/Spatz cluster mesh, 2.5D/3D memory
 
-Status: proposal, nothing implemented.
+> **Historical architecture proposal — not the current operational reference.**
+>
+> This document records the proposal that motivated the heterogeneous mesh.
+> Important portions were subsequently implemented (CVA6 host, Snitch and
+> Spatz clusters, host/cluster dispatch, Deeploy mapping, calibration, and
+> application workloads), while other portions were deliberately not adopted
+> (the proposed D2D fabric and 2.5D/3D L3 hierarchy). HyperRAM now exists as a
+> selectable main-memory model, not as the stacked hierarchy proposed here.
+> See [architecture.md](architecture.md) for the current system and
+> [relatorio-desenvolvimento.md](relatorio-desenvolvimento.md) for the
+> chronological development record.
+
+Original status: proposal, nothing implemented at the time it was written.
 Scope: extend hetero-sim from *three single cores measured separately* to *one
 system where an ONNX model runs across all three, each kernel on the core that
 is fastest for it*.

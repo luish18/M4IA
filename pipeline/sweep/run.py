@@ -13,8 +13,8 @@ Structure, and why:
     GVSoC reads from its generated config, so a whole grid usually runs against
     one existing build; the driver refuses up front rather than silently
     running the wrong VLEN if a build is missing.
-  * Calibration is per design, not per cell, and cached: the engine cost table
-    depends on the hardware, not on which network is running.
+  * Calibration is per resolved machine, not per cell, and cached: the engine
+    cost table depends on numeric design, host and memory, not on the network.
   * Every cell gets its own copy of runtime/mesh. That is not fastidiousness --
     hes_host.h and friends include "hes_system.h" with quotes, which GCC
     resolves next to the including file before any -I, so a cell that shared
@@ -38,12 +38,30 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT / "pipeline"))
 
 import area as area_model          # noqa: E402
 import design as design_mod        # noqa: E402
+from common import detect_app  # noqa: E402
+from experiment.artifact_identity import (  # noqa: E402
+    build_machine_context,
+    build_run_input_context,
+)
+from experiment.calibration_artifact import (  # noqa: E402
+    cache_status,
+    capture_calibration_context,
+    write_metadata,
+)
+from experiment.discovery import current_host_profile_catalog  # noqa: E402
+from experiment.provenance import capture_run_provenance  # noqa: E402
+from experiment.resolve import resolve_experiment  # noqa: E402
+from experiment.run_manifest import write_run_manifest  # noqa: E402
+from experiment.schema import ExperimentRequest  # noqa: E402
+from experiment.workload import resolve_workload_path  # noqa: E402
 
 PYTHON = ROOT / ".venv" / "bin" / "python"
 MESH = ROOT / "runtime" / "mesh"
+DEEPLOY_TEST = ROOT / "deps" / "deeploy" / "DeeployTest"
 
 
 # --- grids ------------------------------------------------------------------
@@ -292,26 +310,44 @@ def sh(cmd, **kw):
 
 
 def prepare(design, cell_dir, env):
-    """The per-design work: its own mesh copy and generated header."""
+    """Refresh the machine mesh copy, then generate its resolved header."""
     mesh = cell_dir / "mesh"
-    if not mesh.exists():
-        shutil.copytree(MESH, mesh)
+    if mesh.exists():
+        shutil.rmtree(mesh)
+    shutil.copytree(MESH, mesh)
     r = sh([PYTHON, ROOT / "pipeline" / "gen_system_header.py", "--out-dir", mesh], env=env)
     if r.returncode:
         raise RuntimeError(f"header generation failed:\n{r.stdout}\n{r.stderr}")
     return mesh
 
 
-def calibrate(design_dir, mesh, env, host):
-    """Re-measure the engine cost table for this design. Cached per design."""
+def calibrate(design_dir, mesh, env, host, resolved_experiment, context=None):
+    """Return rates and the validated workload-independent input context."""
     rates = design_dir / "rates.json"
-    if rates.exists():
-        return rates
+    metadata = design_dir / "calibration.json"
+    context = context or capture_calibration_context(ROOT, resolved_experiment)
+    host_profiles = current_host_profile_catalog(ROOT)
+    if host not in host_profiles:
+        raise RuntimeError(f"unknown calibration host profile: {host!r}")
+    target = host_profiles[host]["target"]
+    resolved_target = resolved_experiment.get("simulator", {}).get("target")
+    if resolved_target != target:
+        raise RuntimeError(
+            f"calibration host {host!r} requires target {target!r}, "
+            f"not resolved target {resolved_target!r}"
+        )
+    cached, reason = cache_status(rates, metadata, context["input_fingerprint"])
+    if cached:
+        return rates, context, reason
 
     build = design_dir / "calib"
+    if build.exists():
+        shutil.rmtree(build)
+    rates.unlink(missing_ok=True)
+    metadata.unlink(missing_ok=True)
     r = sh([PYTHON, ROOT / "pipeline" / "build_mesh.py", "--test", "mesh_calib",
             "--cluster", "cluster_main.c", "--host-extra", "hes_host.c",
-            "--mesh-dir", mesh, "--work-dir", build], env=env)
+            "--host", host, "--mesh-dir", mesh, "--work-dir", build], env=env)
     if r.returncode:
         raise RuntimeError(f"calibration build failed:\n{r.stdout}\n{r.stderr}")
 
@@ -321,17 +357,86 @@ def calibrate(design_dir, mesh, env, host):
     cenv["HES_ELF_SNITCH"] = str(build / "snitch" / "snitch.elf")
     cenv["HES_ELF_SPATZ"] = str(build / "spatz" / "spatz.elf")
     cenv["PATH"] = f"{ROOT / '.venv' / 'bin'}:{cenv['PATH']}"
-    target = "hetero_ara" if host == "ara" else "hetero_soc"
     r = sh([ROOT / "deps/gvsoc/install/bin/gvsoc", f"--target-dir={ROOT / 'targets'}",
             f"--target={target}", f"--binary={build / 'host' / 'host.elf'}", "run"],
            cwd=run_dir, env=cenv)
     log = run_dir / "calib.log"
     log.write_text(r.stdout + r.stderr)
+    if r.returncode:
+        raise RuntimeError(
+            f"calibration simulation failed for this design:\n{r.stdout}\n{r.stderr}"
+        )
 
     r = sh([PYTHON, HERE / "calibrate.py", log, "-o", rates, "--host", host], env=env)
     if r.returncode:
         raise RuntimeError(f"calibration failed for this design:\n{r.stdout}\n{r.stderr}")
-    return rates
+    write_metadata(metadata, context, rates, log)
+    return rates, context, reason
+
+
+def resolve_cell_experiment(design, model, host, power, images,
+                            frontend=None, serial=False, dram=None):
+    """Resolve requested spelling and effective execution before a cell runs."""
+    try:
+        sample_cap = int(images)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"images must be a positive integer, got {images!r}") from error
+    if sample_cap <= 0:
+        raise ValueError(f"images must be a positive integer, got {images!r}")
+
+    workload_path = resolve_workload_path(model, roots=(ROOT, DEEPLOY_TEST))
+    application = None
+    if workload_path.is_dir():
+        application, _ = detect_app(workload_path)
+    effective_frontend = (frontend or "snitch") if application == "kws" else None
+    effective_serial = bool(serial) if application == "kws" else False
+
+    request = ExperimentRequest(
+        workload=str(model),
+        design_overrides=tuple(sorted(design.items())),
+        host=host,
+        frontend=effective_frontend,
+        serial=effective_serial,
+        power=bool(power),
+        dram=dram,
+    )
+    resolved = resolve_experiment(
+        request,
+        design_api=design_mod,
+        host_profiles=current_host_profile_catalog(ROOT),
+        workload_path=workload_path,
+        application=application,
+    ).to_dict()
+    expected_memory = "fixed" if dram is None else dram
+    if resolved["memory"]["kind"] != expected_memory:
+        raise RuntimeError(
+            f"resolved memory {resolved['memory']['kind']!r} does not match "
+            f"operational sweep memory {expected_memory!r}"
+        )
+
+    requested = {
+        "platform": "m4ia_current",
+        "model": str(model),
+        "design_overrides": dict(design),
+        "host": host,
+        "mapping_strategy": request.mapping_strategy,
+        "pin": None,
+        "frontend": frontend,
+        "serial": bool(serial),
+        "power": bool(power),
+        "dram": dram,
+        "dram_overrides": {},
+        "images": sample_cap,
+    }
+    effective = {
+        "images": sample_cap,
+        "application": application,
+        "frontend": effective_frontend,
+        "serial": effective_serial,
+        "power": bool(power),
+        "pin": None,
+    }
+    return requested, resolved, effective
 
 
 def run_cell(design, model, out_dir, host, power, images, progress=None,
@@ -342,29 +447,13 @@ def run_cell(design, model, out_dir, host, power, images, progress=None,
             progress.step(name)
 
     slug = design_mod.slug(design)
-    design_dir = out_dir / "designs" / slug
-    design_dir.mkdir(parents=True, exist_ok=True)
-    path = design_mod.write(design, design_dir / "design.json")
-    if dram and dram != "fixed":
-        # The main-memory device is a property of the whole sweep, not a knob
-        # (knobs are integers end to end), so it is added to every cell's
-        # design here. Calibration, mapping and simulation all read this file,
-        # so they all see the same device.
-        full = json.loads(path.read_text())
-        full["DRAM_KIND"] = dram
-        path.write_text(json.dumps(full, indent=2, sort_keys=True) + "\n")
-
-    env = dict(os.environ)
-    env["HES_DESIGN"] = str(path)
-
     row = {"design_slug": slug, "design": design_mod.resolve(design),
-           "model": Path(model).name, "host": host}
+           "model": Path(model).name, "host": host,
+           "dram_kind": "fixed" if dram is None else dram}
     if frontend:
         row["frontend"] = frontend
     if serial:
         row["serial"] = True
-    if dram and dram != "fixed":
-        row["dram_kind"] = dram
 
     bad = design_mod.validate(design)
     if bad:
@@ -373,34 +462,103 @@ def run_cell(design, model, out_dir, host, power, images, progress=None,
 
     t0 = time.time()
     try:
+        requested, resolved, effective = resolve_cell_experiment(
+            design, model, host, power, images,
+            frontend=frontend, serial=serial, dram=dram,
+        )
+        machine = build_machine_context(resolved)
+        design_dir = out_dir / "designs" / machine["machine_key"]
+        design_dir.mkdir(parents=True, exist_ok=True)
+        path = design_mod.write(design, design_dir / "design.json")
+
+        # Numeric design resolution remains owned by design.py. Memory is an
+        # explicit, separately resolved machine dimension carried into the
+        # operational HES_DESIGN document consumed by every subprocess.
+        operational_design = json.loads(path.read_text())
+        operational_design["DRAM_KIND"] = resolved["memory"]["kind"]
+        if resolved["memory"]["overrides"]:
+            operational_design["DRAM_OVERRIDES"] = resolved["memory"]["overrides"]
+        path.write_text(json.dumps(operational_design, indent=2, sort_keys=True) + "\n")
+
+        env = dict(os.environ)
+        env["HES_DESIGN"] = str(path)
+        row["machine_key"] = machine["machine_key"]
+        row["dram_kind"] = resolved["memory"]["kind"]
+        if effective["frontend"] is not None:
+            row["effective_frontend"] = effective["frontend"]
+
         phase("mesh + header")
         mesh = prepare(design, design_dir, env)
-        # Cached per design, so this is free for every model after the first.
-        phase("calibrating" if not (design_dir / "rates.json").exists() else "calibration cached")
-        rates = calibrate(design_dir, mesh, env, host)
+        phase("calibration cache check")
+        rates, calibration_context, cache_reason = calibrate(
+            design_dir, mesh, env, host, resolved,
+        )
         env["HES_RATES"] = str(rates)
+        row["calibration_cache"] = cache_reason
 
-        cell = out_dir / "cells" / f"{slug}__{Path(model).name}"
+        run_provenance = capture_run_provenance(
+            ROOT, resolved, include_sweep=True,
+        )
+        calibration_provenance = calibration_context.get("provenance", {})
+        run_provenance["execution_environment"] = {
+            key: calibration_provenance[key]
+            for key in ("dependencies", "patches", "toolchain", "simulator_binary")
+            if key in calibration_provenance
+        }
+        run_input = build_run_input_context(
+            resolved,
+            calibration_input_fingerprint=calibration_context["input_fingerprint"],
+            run_source_set_digest=run_provenance["source_set"]["digest"],
+            execution_controls=effective,
+            workload_label=Path(model).name,
+        )
+        artifact_key = run_input["artifact_key"]
+        row["artifact_key"] = artifact_key
+        row["run_input_fingerprint"] = run_input["run_input_fingerprint"]
+
+        cell = out_dir / "cells" / artifact_key
         cell.mkdir(parents=True, exist_ok=True)
         result = cell / "result.json"
+        manifest_path = cell / "manifest.json"
+        # A failed new invocation must never be represented by artifacts from
+        # an older invocation with the same pre-run identity.
+        result.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
         cmd = [PYTHON, ROOT / "pipeline" / "run_hetero.py", model,
-               "--host", host, "--mesh-dir", mesh, "--tag", slug,
-               "--out", result, "--images", images, "-q"]
+               "--host", host, "--mesh-dir", mesh, "--tag", artifact_key,
+               "--out", result, "--images", effective["images"], "-q"]
         if power:
             cmd.append("--power")
-        # Only meaningful for an op that runs a front-end on its own cluster;
-        # run_hetero ignores them otherwise.
-        if frontend:
-            cmd += ["--frontend", frontend]
-        if serial:
+        if effective["frontend"]:
+            cmd += ["--frontend", effective["frontend"]]
+        if effective["serial"]:
             cmd.append("--serial")
         phase("codegen + build + simulate")
         r = sh(cmd, env=env)
         if not result.exists():
             row.update(status="failed", reasons=[(r.stdout + r.stderr)[-1500:]])
             return row
-        res = json.load(result.open())["result"]
+        result_doc = json.loads(result.read_text())
+        res = result_doc["result"]
         row["status"] = res.get("status", "unknown")
+
+        manifest = write_run_manifest(
+            manifest_path,
+            requested=requested,
+            resolved={
+                "experiment": resolved,
+                "machine": machine,
+                "execution": effective,
+            },
+            run_input=run_input,
+            artifact_key=artifact_key,
+            calibration_path=design_dir / "calibration.json",
+            result_path=result,
+            run_provenance=run_provenance,
+            base_dir=out_dir,
+        )
+        row["run_fingerprint"] = manifest["run_fingerprint"]
+        row["manifest"] = str(manifest_path.relative_to(out_dir))
         for k in ("cycles", "cycles_per_image", "cycles_per_clip", "accuracy",
                   "offload_failures", "maxdiff", "caches", "per_engine_cycles", "dram",
                   # KWS runs both clusters at once, so its result is a max

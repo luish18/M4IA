@@ -1,4 +1,4 @@
-# hetero-sim — CVA6 / Snitch / Spatz ONNX-op benchmark pipeline
+# M4IA (hetero-sim) — CVA6 / Snitch / Spatz experimentation platform
 
 GVSoC simulation of three heterogeneous RISC-V core types, driven from ONNX via Deeploy:
 
@@ -19,10 +19,51 @@ they actually have — Snitch against its two custom extensions, Spatz against
 RVV. See [The Snitch FP extensions](#the-snitch-fp-extensions-xssr--xfrep) and
 [The Spatz RVV kernels](#the-spatz-rvv-kernels).
 
+## Documentation
+
+This README remains the substantial technical entry point: setup, commands,
+measured results, kernel rationale, memory behavior, and simulator fixes live
+here. The experiment-facing and maintainer contracts are split into focused
+documents:
+
+- [Documentation map](docs/README.md) — choose a guide by reader goal and role.
+- [Architecture](docs/architecture.md) — current end-to-end operational flow.
+- [Experimental Workbench](docs/experimental-workbench.md) — request,
+  resolution, evidence, identity, provenance, and scientific-safety contracts.
+- [Workbench quickstart](docs/experimental-workbench-quickstart.md) — discover,
+  resolve, run, and inspect one experiment.
+- [Chip design parameters](docs/chip-design-parameters.md) — current design
+  inventory and causal-validation boundary.
+- [Extension guide](docs/extending-m4ia.md) and
+  [extension-seam audit](docs/dev/extension-seams.md) — how to extend M4IA and
+  why some seams remain fragile or blocked.
+- [Metric semantics](docs/metrics.md) — measurement scopes and non-claims.
+- [GUI integration](docs/gui-integration.md) — current thin-client boundary and
+  the schema-driven continuation path.
+
+Historical context remains intentionally separate: the Portuguese
+[development report](docs/relatorio-desenvolvimento.md), the original
+[heterogeneous-mesh proposal](docs/hetero-mesh-plan.md), the
+[Foundation construction history](docs/dev/foundation-checkpoints.md), and the
+[modern integration notes](docs/dev/integration-notes.md), which record what
+already existed in M4IA, what the Foundation changed, and why it was ported
+semantically. Future scientific work is sequenced in the
+[research roadmap](docs/dev/research-roadmap.md).
+
+M4IA has two related execution contexts:
+
+- `pipeline/run.py` builds and measures one core type at a time. It is the
+  standalone/per-core comparison path used by the baseline operator tables in
+  this README.
+- `pipeline/run_hetero.py` runs the heterogeneous SoC: a CVA6 host dispatches
+  work to the configured Snitch and Spatz clusters. The sweep and application
+  paths build on this heterogeneous runner.
+
 **The memory system is simulated,** not assumed away: cache misses, DRAM latency and
 refill bandwidth all land in the cycle counts. `--memory ideal` switches back to the
 zero-latency targets (`cva6_ideal`, `snitch`, `spatz`), where every access completes
-in a single cycle and a cycle count is a pure compute cost. See
+in a single cycle. This is an idealized-memory comparison; instruction execution,
+runtime, synchronization, instrumentation, and other modeled effects remain. See
 [The memory system](#the-memory-system).
 
 ## Setup
@@ -125,8 +166,9 @@ Compare the two memory models on the same op:
 
 Results land in `results/<op>.json` and `results/<op>-ideal.json`.
 
-Put a real RAM device behind the caches instead of the fixed main-memory latency
-(see [Real RAM devices](#real-ram-devices---dram)):
+Put a modeled LPDDR/HyperRAM device-timing model behind the caches instead of
+the fixed main-memory latency (see
+[Modeled device memories](#modeled-device-memories---dram)):
 
 ```bash
 .venv/bin/python pipeline/run.py Tests/Kernels/FP32/MatMul --cores cva6,snitch,spatz,ara --dram lpddr4
@@ -210,11 +252,20 @@ default `hetero-sim:gui`). CI builds and tests the GUI on all three platforms.
 
 ## Results
 
-Cycles for the timed op, one core of each type, on the default modelled-memory
-targets. `×` is against CVA6; the fastest core in each row is in bold. Every
-row is verified against the ONNX reference and reproduced by
+### Preserved standalone baseline results
+
+These are preserved simulated baselines for the listed operator shapes and
+recorded default modeled-memory configuration. They use the standalone
+`pipeline/run.py` path and measure one core of each type; they are not universal
+rankings of the configurable heterogeneous clusters. `×` is against CVA6; the
+fastest core in each row is in bold. Every row is verified against the ONNX
+reference and reproduced by
 `results/<op>.json`. The `ara` column is the CVA6 host with its Ara vector unit,
 opt-in with `--cores cva6,ara` — see [The vector host](#the-vector-host-cva6--ara).
+
+Unless a later result section states another configuration explicitly, its
+numbers should likewise be read as preserved simulated measurements for the
+named shapes, software, and model state—not as universal architecture rankings.
 
 | operator | shape | cva6 | snitch | spatz | ara |
 |----------|-------|------|--------|-------|-----|
@@ -230,19 +281,19 @@ opt-in with `--cores cva6,ara` — see [The vector host](#the-vector-host-cva6--
 
 Reading it:
 
-- **Spatz takes every fp32 matmul-shaped op**, by 17-63× over CVA6 and 2-6×
+- **In these shapes, Spatz takes every fp32 matmul-shaped row**, by 17-63× over CVA6 and 2-6×
   over Snitch, once its kernels are hand-written against RVV rather than
   autovectorized — see [The Spatz RVV kernels](#the-spatz-rvv-kernels). While
   Spatz ran compiler output this table had Snitch ahead on all of them.
-- **Snitch still takes Conv2D**, and its extensions are what put it 10.7× over
+- **Snitch takes the listed Conv2D case**, and its extensions are what put it 10.7× over
   CVA6 everywhere: Xssr removes the loads and the address arithmetic and Xfrep
   removes the loop, which leaves an FMA rate the stream bandwidth sets — see
   [The Snitch FP extensions](#the-snitch-fp-extensions-xssr--xfrep). Spatz has
   no hand-written convolution yet, which is the obvious next kernel.
-- **Spatz takes int8 GEMM**, by 5.4× over Snitch: SSR feeds the FP regfile and
+- **Spatz takes the listed int8 GEMM case**, by 5.4× over Snitch: SSR feeds the FP regfile and
   FREP replays FP instructions, so neither helps an integer reduction, while
   RVV vectorizes it directly.
-- **Softmax is `expf`-bound** on every core, so they land within 1.7× of each
+- **This Softmax shape is `expf`-bound** on every core, so they land within 1.7× of each
   other and no amount of streaming or vectorizing moves it much. Snitch is last
   because the libm code is scalar work on its small integer core, and FREP
   replays FP instructions from a 16-entry buffer, not a libm call.
@@ -254,11 +305,10 @@ Reading it:
   the Ara unit issues a gather one element per bus burst. On every dense fp32
   op Spatz is still 11-39× ahead of it.
 
-The dividing line between the two accelerated cores is not integer versus
+For these baseline cases, the useful dividing line is not simply integer versus
 float. It is whether the work reduces to a dense FP multiply-accumulate loop
-that Snitch's sequencer can replay: if it does, Snitch is competitive; if it
-does not — an integer reduction, a libm call — Spatz is the better cluster
-whatever the datatype.
+that Snitch's sequencer can replay. Broader claims require additional shapes,
+completed implementation evidence, and controlled experiments.
 
 `--memory ideal` (zero-latency memory, `results/<op>-ideal.json`) keeps the same
 ordering everywhere except Add, where Spatz's 635 cycles edge out CVA6's 715
@@ -669,8 +719,10 @@ that row.
 Each core keeps the memory architecture it actually has — CVA6 caches, Snitch and
 Spatz a cluster scratchpad — and all three sit behind the same main memory, so a
 cycle difference between them is a difference in how the core uses memory and not in
-how the memory was configured. Every number lives in
-[`targets/hetero/memsys.py`](targets/hetero/memsys.py).
+how the memory was configured. Fixed-path policy and selection live in
+[`targets/hetero/memsys.py`](targets/hetero/memsys.py); modeled-device timing
+presets live in
+[`targets/hetero/dram_presets.py`](targets/hetero/dram_presets.py).
 
 ```
 cva6_real     fetch ── L1 I$ 16K/4-way ─┐
@@ -749,11 +801,11 @@ into the network buffers, which warms the CVA6 caches the same way `crt0` fills 
 TCDM. What the modelled memory system charges for is therefore the steady-state cost:
 capacity misses, store traffic and instruction refills, not the cold start.
 
-### Real RAM devices (`--dram`)
+### Modeled device memories (`--dram`)
 
 `DRAM_KIND` in [`memsys.py`](targets/hetero/memsys.py) (or `--dram` on `run.py`,
 `run_hetero.py` and `sweep/run.py`, or `DRAM=` on `make run/hetero/mnist/kws`)
-replaces the constant main-memory latency with a model of an actual part:
+replaces the constant main-memory latency with a modeled device-timing instance:
 
 | kind | device | source of the numbers | unloaded line read | peak |
 |---|---|---|---|---|
@@ -866,7 +918,7 @@ needs a SystemC build and answers reads asynchronously while ignoring debug
 accesses, which the timing caches depend on; its Ramulator bridge
 (`memory.ramulator`) speaks only the newer io_v2 beat protocol, and everything in
 this hierarchy is io v1 with no bridge between the two; its HyperRAM model is a
-pin-level device behind PULP's uDMA, not something a core can load from. Both
+pin-level modeled device behind PULP's uDMA, not something a core can load from. Both
 simulators are used here instead as references, offline.
 
 ## Caveats
@@ -885,10 +937,12 @@ simulators are used here instead as references, offline.
   Xssr/Xfrep, Spatz uses hand-written RVV, CVA6 runs the scalar kernels.
   `--spatz-kernels autovec` swaps Spatz's back for the compiler's output, which
   is how the comparison below was measured.
-- Multi-core parallelization (8-core Snitch cluster, multi-CC Spatz) is still
-  not used: every number is one core of each type. That is the largest
-  remaining lever on the Snitch and Spatz numbers, and it needs a cluster
-  runtime (barriers, DMA, per-core tiling) rather than a kernel rewrite.
+- The standalone operator table above uses one core of each type and therefore
+  does not measure cluster scaling. That scope must not be generalized to all
+  M4IA execution: `run_hetero.py` has a host/cluster runtime, Snitch and Spatz
+  core counts are configurable design dimensions, and application paths such
+  as KWS use cluster execution and cross-cluster concurrency. Per-core tiling
+  and utilization still need to be stated for each heterogeneous experiment.
 - The vector host's Ara unit reaches memory through the host's cache hierarchy
   on a single port, and issues gathers and strided accesses one element per
   burst. That is how the model is built rather than a property of every vector

@@ -38,6 +38,7 @@ from build_mesh import HOSTS, build_network  # noqa: E402
 from common import (APPS, DRAM_KINDS, DRAM_RE, GVSOC, PYTHON, RESULTS, ROOT,  # noqa: E402
                     TARGETS, WORK, WRITEBACK_RE, detect_app, dram_counters, note_file,
                     set_debug, use_dram)
+from experiment.actual_implementation import annotate_completed_nodes  # noqa: E402
 
 DEEPLOY_TEST = ROOT / "deps" / "deeploy" / "DeeployTest"
 
@@ -499,8 +500,10 @@ def main():
     print(f"[1/3] Deeploy: {test_dir.name}/network.onnx -> C, mapped across engines")
     mapping = generate(test_dir, gen_dir, args.pin, args.debug, args.host)
     mapping["host"] = args.host
-    if dram != "fixed":
-        mapping["dram"] = dram
+    # The effective kind includes a DRAM_KIND inherited through HES_DESIGN.
+    # Keep it explicit even for fixed memory; device counters, when present,
+    # remain separate measured evidence under result.dram.
+    mapping["dram"] = dram
 
     print(f"[2/3] build: {args.host} host + snitch cluster + spatz cluster")
     app_name, app = detect_app(test_dir)
@@ -541,6 +544,7 @@ def main():
     res = simulate(elfs, work / "run", len(mapping["nodes"]), args.timeout,
                    args.stall_timeout, args.quiet, target = HOSTS[args.host][1],
                    power = args.power)
+    res = annotate_completed_nodes(mapping, res)
 
     report(op_name, mapping, res, out_path = args.out)
     sys.exit(0 if res["status"] == "ok" else 1)

@@ -47,6 +47,7 @@ from Deeploy.Targets.Generic.Platform import GenericOptimizer  # noqa: E402
 from hetero_platform import progress  # noqa: E402
 from hetero_platform.mapper import make_mapper  # noqa: E402
 from hetero_platform.deployment import HeteroPlatform  # noqa: E402
+from experiment.generated_arguments import generated_mapping_nodes  # noqa: E402
 
 
 def is_fp32_network(input_types) -> bool:
@@ -81,7 +82,12 @@ def build_deployer(graph, input_types, input_offsets, state_dir, pin=None, host=
                                default_channels_first = True,
                                deeployStateDir = state_dir,
                                inputOffsets = input_offsets)
-    return EngineColoringDeployerWrapper(deployer, make_mapper(pin, host))
+    # The pinned Deeploy wrapper does not expose the mapper it instantiates.
+    # Retain the factory class so its narrow last_instance seam can recover the
+    # descriptive explanations after colouring without inspecting optimizer
+    # internals.
+    mapper_factory = make_mapper(pin, host)
+    return EngineColoringDeployerWrapper(deployer, mapper_factory), mapper_factory
 
 
 def main():
@@ -123,8 +129,14 @@ def main():
         input_types[f"input_{i}"] = _type
         input_offsets[f"input_{i}"] = offset
 
-    deployer = build_deployer(graph, input_types, input_offsets,
-                              str(dump_dir / "deeployStates"), args.pin, args.host)
+    deployer, mapper_factory = build_deployer(
+        graph,
+        input_types,
+        input_offsets,
+        str(dump_dir / "deeployStates"),
+        args.pin,
+        args.host,
+    )
 
     # The code transformations run inside prepare(), after lowering and
     # colouring but before code generation, so the progress pass has to read
@@ -139,7 +151,12 @@ def main():
         if layer is None:
             return "HES_ENGINE_CVA6", "?"
         engine = layer.node.attrs.get("engine", "cva6")
-        decided[name] = (engine, layer.node.op)
+        decided[name] = {
+            "index": progress.index_of(name),
+            "engine": engine,
+            "op": layer.node.op,
+            "layer": layer,
+        }
         return progress.ENGINE_MACRO.get(engine, "HES_ENGINE_CVA6"), layer.node.op
 
     progress.reset()
@@ -151,10 +168,12 @@ def main():
 
     generateTestNetwork(deployer, test_inputs, test_outputs, str(dump_dir), _NoVerbosity)
 
-    # Report the placement next to the generated code.
-    placement = []
-    for name, (engine, op) in decided.items():
-        placement.append({"node": name, "op": op, "engine": engine})
+    # Report placement and descriptive decision/generated-dispatch evidence
+    # next to the generated code. This does not claim runtime completion or an
+    # actual concrete kernel implementation.
+    mapper = mapper_factory.last_instance
+    explanations = getattr(mapper, "explanations", []) if mapper is not None else []
+    placement = generated_mapping_nodes(decided, explanations)
     (dump_dir / "mapping.json").write_text(json.dumps({
         "pin": args.pin,
         "host": args.host,

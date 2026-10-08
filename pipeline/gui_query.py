@@ -6,6 +6,8 @@
     python pipeline/gui_query.py inspect ops/mnist
     python pipeline/gui_query.py knobs
     python pipeline/gui_query.py validate designs.json
+    python pipeline/gui_query.py experiment-schema
+    python pipeline/gui_query.py resolve-experiment request.json
 
 The GUI (gui/) runs the pipeline through its CLIs, natively or inside the
 Docker image, and cannot import Python. Rather than re-implement the design
@@ -26,6 +28,13 @@ sys.path.insert(0, str(HERE / "sweep"))
 from common import (APPS, DEEPLOY_TEST, GVSOC, PYTHON, ROOT, TC,  # noqa: E402
                     detect_app)
 import design as design_mod  # noqa: E402
+from experiment.discovery import (  # noqa: E402
+    current_experiment_schema,
+    current_host_profile_catalog,
+)
+from experiment.resolve import resolve_experiment  # noqa: E402
+from experiment.schema import ExperimentRequest  # noqa: E402
+from experiment.workload import resolve_workload_path  # noqa: E402
 
 
 def cmd_env(_args):
@@ -133,6 +142,37 @@ def cmd_knobs(_args):
     }
 
 
+def cmd_experiment_schema(_args):
+    """Current experiment-facing choices, derived from operational sources."""
+    return current_experiment_schema(ROOT)
+
+
+def cmd_resolve_experiment(args):
+    """Resolve one JSON ExperimentRequest without building or running anything."""
+    data = json.loads(Path(args.request).read_text())
+    request = ExperimentRequest.from_dict(data)
+
+    # Preserve the resolver's explicit empty-workload error. Path("") is ".",
+    # which would otherwise turn an omitted workload into the current directory.
+    workload_path = None
+    application = None
+    if request.workload:
+        workload_path = resolve_workload_path(
+            request.workload,
+            roots=(ROOT, DEEPLOY_TEST),
+        )
+        if workload_path.is_dir():
+            application, _ = detect_app(workload_path)
+
+    return resolve_experiment(
+        request,
+        design_api=design_mod,
+        host_profiles=current_host_profile_catalog(ROOT),
+        workload_path=workload_path,
+        application=application,
+    ).to_dict()
+
+
 def cmd_validate(args):
     """Per design point: its slug, resolved values, and why it cannot be built.
 
@@ -166,6 +206,10 @@ def main():
     p.add_argument("path", help="op directory or .onnx file")
     p.set_defaults(fn=cmd_inspect)
     sub.add_parser("knobs").set_defaults(fn=cmd_knobs)
+    sub.add_parser("experiment-schema").set_defaults(fn=cmd_experiment_schema)
+    p = sub.add_parser("resolve-experiment")
+    p.add_argument("request", help="JSON ExperimentRequest file")
+    p.set_defaults(fn=cmd_resolve_experiment)
     p = sub.add_parser("validate")
     p.add_argument("designs", help="JSON list of partial designs")
     p.set_defaults(fn=cmd_validate)

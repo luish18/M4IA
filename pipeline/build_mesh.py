@@ -207,17 +207,22 @@ def build(image: Image, sources, out_dir: Path, opt="-O2", extra_flags=(),
     return elf
 
 
-def build_test(test: str, work: Path, cluster_src=None, host_extra=()) -> dict:
+def build_test(test: str, work: Path, cluster_src=None, host_extra=(), host="cva6") -> dict:
     """Build a standalone bare-metal check: one host program, plus the cluster
     program both clusters run."""
+    if host not in HOSTS:
+        raise ValueError(
+            f"unknown host {host!r}; choose one of {', '.join(sorted(HOSTS))}"
+        )
     host_src = RUNTIME / "tests" / f"{test}.c"
     syscalls = RUNTIME / "common" / "syscalls.c"
     if cluster_src is None:
         cluster_src = MESH / "cluster_probe.c"
     with_kernels = cluster_src.name == "cluster_main.c"
+    host_image = HOSTS[host][0]
 
     return {
-        "host": build(HOST, [syscalls, host_src, *host_extra], work / "host",
+        "host": build(host_image, [syscalls, host_src, *host_extra], work / "host",
                       with_kernels=with_kernels),
         "snitch": build(SNITCH, [cluster_src], work / "snitch",
                         with_kernels=with_kernels),
@@ -272,6 +277,8 @@ def main():
                     help="cluster program under runtime/mesh (default: %(default)s)")
     ap.add_argument("--host-extra", default=[], action="append",
                     help="extra host source, relative to runtime/mesh")
+    ap.add_argument("--host", choices=sorted(HOSTS), default="cva6",
+                    help="host image profile (default: %(default)s)")
     ap.add_argument("--mesh-dir", default=None,
                     help="build against this copy of runtime/mesh (a sweep gives "
                          "each design point its own)")
@@ -286,7 +293,8 @@ def main():
     work = pathlib.Path(args.work_dir) if args.work_dir else ROOT / "work" / args.test
     elfs = build_test(args.test, work,
                       cluster_src=MESH / args.cluster,
-                      host_extra=[MESH / s for s in args.host_extra])
+                      host_extra=[MESH / s for s in args.host_extra],
+                      host=args.host)
     for name, elf in elfs.items():
         # A build directory outside the repository root is legitimate -- a sweep
         # cell is one -- so fall back to the full path rather than raising from

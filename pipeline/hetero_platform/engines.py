@@ -99,13 +99,13 @@ def _cluster_mapping(engine_macro: str):
     }
 
 
-def _tensor_bytes(tensor) -> int:
+def _tensor_bytes(tensor) -> int | None:
     if not hasattr(tensor, "shape") or tensor.shape is None:
-        return 0
+        return None
     n = 1
     for dim in tensor.shape:
-        if not isinstance(dim, int):
-            return 0  # dynamic: cannot size it, treat as free
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim < 0:
+            return None
         n *= dim
     dtype = getattr(tensor, "dtype", None)
     width = np.dtype(dtype).itemsize if dtype is not None else 4
@@ -122,9 +122,10 @@ def _all_fp32(node: gs.Node) -> bool:
     return True
 
 
-def working_set_bytes(node: gs.Node) -> int:
-    """Bytes a cluster would have to stage to run this node."""
-    return sum(_tensor_bytes(t) for t in list(node.inputs) + list(node.outputs))
+def working_set_bytes(node: gs.Node) -> int | None:
+    """Bytes a cluster would stage, or None if any required size is unknown."""
+    sizes = [_tensor_bytes(t) for t in list(node.inputs) + list(node.outputs)]
+    return sum(sizes) if all(size is not None for size in sizes) else None
 
 
 class Cva6HostEngine(DeploymentEngine):
@@ -158,7 +159,8 @@ class ClusterEngine(DeploymentEngine):
             return False
         if not _all_fp32(node):
             return False
-        return working_set_bytes(node) <= self.tcdm_budget
+        size = working_set_bytes(node)
+        return size is not None and size <= self.tcdm_budget
 
 
 class SnitchClusterEngine(ClusterEngine):

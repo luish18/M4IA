@@ -1,5 +1,13 @@
 # Relatório de desenvolvimento — hetero-sim
 
+> **Relato histórico.** Este documento preserva a evolução cronológica, as
+> medições e as decisões do projeto. Ele não substitui a referência operacional
+> atual. Para a arquitetura vigente, consulte
+> [architecture.md](architecture.md); para os contratos experimentais atuais,
+> consulte [experimental-workbench.md](experimental-workbench.md). As tabelas e
+> hipóteses abaixo permanecem no contexto dos commits e condições descritos em
+> cada seção.
+
 Simulação de uma arquitetura RISC-V heterogênea (CVA6 + Snitch + Spatz) e
 classificação de MNIST rodando sobre ela. Este relatório narra o
 desenvolvimento em ordem cronológica e reproduz, para cada etapa relevante, a

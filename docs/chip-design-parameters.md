@@ -1,114 +1,189 @@
 # Chip design optimization parameters
 
-Inventory of every parameter of the simulated `hetero_soc` chip (CVA6 host +
-Snitch cluster + Spatz cluster, described in
-[relatorio-desenvolvimento.md](relatorio-desenvolvimento.md)) that can be
-changed to explore a different point in the design space. The chip is not
-synthesized RTL — it is a cycle-level GVSoC model driven entirely by Python
-board files, so every parameter below is a named constant in this repo, not a
-register in a hardware description language. That is a feature for a thesis:
-each row is a knob you can turn and re-measure with `pipeline/run_hetero.py`
-without touching a hardware description.
+> **Scope and causal-validation notice**
+>
+> This is the maintained inventory of the current modeled design space. It is
+> not proof that every listed parameter is a validated scientific sweep axis.
+> Before drawing a causal claim, trace the value from request/override through
+> resolved design, generated configuration, GVSoC construction, runtime-visible
+> state, and measurement. See
+> [Experimental Workbench](experimental-workbench.md#scientific-use-guardrail)
+> and [Extending M4IA](extending-m4ia.md#adding-a-hardware-design-knob).
+>
+> Main-memory selection (`fixed`, `lpddr4`, `lpddr4x`, `lpddr5`, or
+> `hyperram`) is explicit experiment/machine identity, not an integer entry in
+> `pipeline/sweep/design.py::DEFAULTS`. Consequently it does not enter the
+> numeric-only `design.slug`; it is resolved and fingerprinted separately.
 
-Parameters are grouped by the part of the chip they describe, then by whether
-they are already exposed as a constant (**tunable now**) or would require new
-modelling work first (**not modelled yet** — from
-[hetero-mesh-plan.md](hetero-mesh-plan.md), the design's own roadmap).
+This inventory covers the simulated `hetero_soc` chip (CVA6 host + Snitch and
+Spatz clusters, described historically in
+[relatorio-desenvolvimento.md](relatorio-desenvolvimento.md)). It includes
+several kinds of value that must not be confused:
+
+- **supported numeric design knobs** are exactly the integer keys in
+  `pipeline/sweep/design.py::DEFAULTS`; `parameter_catalog.py` provides
+  descriptive metadata and rejects drift from that set;
+- **operational/model facts** are current constants or properties consumed by
+  the target/runtime but are not standard sweep keys;
+- **derived values** are computed from the resolved design and must not be
+  overridden as independent constants;
+- **main memory** is separate experiment/machine identity, not a numeric design
+  key;
+- **evaluation controls**, such as standalone `--memory`, select a comparison
+  mode rather than changing `design.slug`;
+- **future axes** require new modeling or runtime work before they are supported.
+
+The SoC is a GVSoC model rather than synthesized RTL. Exposure in Python or a
+catalog is still not proof that a knob's causal path has been scientifically
+validated.
 
 There is no vendored RTL in this repo (`deps/` holds only three GVSoC patches,
 no submodules, no SystemVerilog). GVSoC itself — the simulator that supplies
 the CVA6/Ara/Snitch/Spatz component models — is fetched by `setup.sh` at a
 pinned commit, not checked into this worktree, so any microarchitectural
-detail *inside* those upstream models that isn't overridden by a constant
-below (e.g. CVA6 pipeline depth, branch predictor) is fixed by that pinned
-version and out of scope for a parameter sweep from this repo alone.
+detail *inside* those upstream models that is not exposed by the supported
+design keys below (for example CVA6 pipeline depth or branch predictor) is
+fixed by that pinned version and out of scope for the standard sweep API.
+
+## Supported numeric design keys
+
+These are the complete keys accepted by `ExperimentRequest.design_overrides`
+and the current sweep design resolver. Values shown are baseline defaults, not
+claims that every axis has completed causal validation.
+
+| Key | Baseline | Scope |
+|---|---:|---|
+| `HOST_VLEN` | 4096 bits | Ara vector-register length; build-time key |
+| `HOST_NB_LANES` | 4 | Ara vector lanes |
+| `HOST_LANE_WIDTH` | 8 bytes | Ara lane width |
+| `SPATZ_VLEN` | 512 bits | Per-core Spatz vector-register length; build-time key |
+| `SPATZ_NB_LANES` | 4 | Lanes per modeled Spatz core |
+| `SPATZ_LANE_WIDTH` | 8 bytes | Spatz lane width |
+| `SNITCH_NB_CORE` | 9 | Total modeled Snitch-cluster cores, including one control/DMA core |
+| `SPATZ_NB_CORE` | 9 | Total modeled Spatz-cluster cores, including one control/DMA core |
+| `TCDM_SIZE` | 128 KiB | Capacity assigned to each cluster |
+| `ICACHE_SIZE` / `ICACHE_WAYS` | 16 KiB / 4 | Host L1 instruction-cache geometry |
+| `DCACHE_SIZE` / `DCACHE_WAYS` | 32 KiB / 8 | Host L1 data-cache geometry |
+| `L2_SIZE` / `L2_WAYS` | 512 KiB / 8 | Shared host-side L2 geometry |
+| `LINE_SIZE` | 64 bytes | Line size shared by the modeled host caches |
+| `NARROW_AXI_WIDTH` | 8 bytes/cycle | Host-to-cluster/narrow AXI width |
+| `WIDE_AXI_WIDTH` | 64 bytes/cycle | Main-memory/DMA wide AXI width |
+
+Authoritative ownership is
+[`pipeline/sweep/design.py`](../pipeline/sweep/design.py); descriptive names
+and units are in
+[`pipeline/experiment/parameter_catalog.py`](../pipeline/experiment/parameter_catalog.py).
+Operational consumers are identified in the sections below.
 
 ## 1. CVA6 host (orchestrator)
 
-| Parameter | Current value | Where | What it controls |
+The vector and cache-geometry rows named in `DEFAULTS` are supported numeric
+design knobs. ISA/profile choice, hart assignment, timing assumptions, and
+address-space sizes are operational or derived facts.
+
+| Parameter | Baseline/current value | Class and owner | What it controls |
 |---|---|---|---|
-| `isa` (march) | `rv64imafdc` (scalar) / `rv64imafdcv` (vector) | [soc.py:145-158](../targets/hetero/soc.py) | ISA extensions the host core decodes; `v` switches in the Ara vector unit below |
-| `HOST_VLEN` | 4096 bits | [system.py:66](../targets/hetero/system.py:66) | Vector register length of the Ara unit attached to the host — 8× a Spatz core's 512 b, i.e. 128 fp32 per register |
-| `HOST_NB_LANES` | 4 | [system.py:67](../targets/hetero/system.py:67) | Number of parallel Ara vector lanes |
-| `HOST_LANE_WIDTH` | 8 bytes | [system.py:68](../targets/hetero/system.py:68) | Bytes processed per lane per cycle |
-| `HOST_HARTID` | 16 | [system.py:72](../targets/hetero/system.py:72) | Hart id of the host, kept above every cluster hartid |
-| `ICACHE.size` | 16 KiB | [memsys.py:38](../targets/hetero/memsys.py:38) | L1 instruction cache capacity |
-| `ICACHE.ways` | 4 | [memsys.py:39](../targets/hetero/memsys.py:39) | I-cache associativity |
-| `ICACHE.hit_latency` | 0 cycles | [memsys.py:44](../targets/hetero/memsys.py:44) | Front-end stall on an I-cache hit |
-| `DCACHE.size` | 32 KiB | [memsys.py:49](../targets/hetero/memsys.py:49) | L1 data cache capacity |
-| `DCACHE.ways` | 8 | [memsys.py:50](../targets/hetero/memsys.py:50) | D-cache associativity |
-| `DCACHE.hit_latency` | 1 cycle | [memsys.py:55](../targets/hetero/memsys.py:55) | Extra cycles on a D-cache hit (on top of the ISS's 2-cycle load-to-use) |
-| `DCACHE.write_allocate` | `False` (write-through) | [memsys.py:60](../targets/hetero/memsys.py:60) | Whether a store miss pulls in the line |
-| `DCACHE.store_buffer_size` | 8 entries | [memsys.py:61](../targets/hetero/memsys.py:61) | Store buffer depth draining to L2 |
-| `LINE_SIZE` (I$/D$/L2) | 64 bytes | [memsys.py:30](../targets/hetero/memsys.py:30) | Cache line size shared by all three levels |
-| `L2.size` | 512 KiB | [memsys.py:66](../targets/hetero/memsys.py:66) | Shared L2 capacity |
-| `L2.ways` | 8 | [memsys.py:67](../targets/hetero/memsys.py:67) | L2 associativity |
-| `L2_LATENCY` | 10 cycles | [memsys.py:33](../targets/hetero/memsys.py:33) | L2 hit latency |
-| `L2_WIDTH` | 16 bytes/cycle | [memsys.py:35](../targets/hetero/memsys.py:35) | L1↔L2 bus width (sets refill duration for I$/D$) |
-| `HOST_HEAP_SIZE` | 8 MiB | [soc.py:285](../targets/hetero/soc.py:285) | Heap Deeploy's `InitNetwork` allocates activations from |
-| `HOST_STACK_SIZE` | 256 KiB | [soc.py:286](../targets/hetero/soc.py:286) | Host stack size |
-| `HOST_LOAD_SIZE` | 64 MiB | [soc.py:35](../targets/hetero/soc.py:35) | Address-space window reserved for the host's text/rodata/data image |
+| host ISA | `rv64imafdc` (`cva6`) / `rv64imafdcv` (`ara`) | Host-profile operational fact; [targets/hetero/soc.py](../targets/hetero/soc.py) | ISA decoded by the selected host model |
+| `HOST_VLEN` | 4096 bits | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Ara vector-register length; eight times baseline Spatz VLEN |
+| `HOST_NB_LANES` | 4 | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Parallel Ara vector lanes |
+| `HOST_LANE_WIDTH` | 8 bytes | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Bytes processed per Ara lane per cycle |
+| `HOST_HARTID` | derived; 18 at baseline | Derived as `max(first_hartid + nb_core)` across clusters in [targets/hetero/system.py](../targets/hetero/system.py) | Keeps the host above every resolved cluster hart ID when core counts change |
+| `ICACHE_SIZE` / `ICACHE_WAYS` | 16 KiB / 4 | Supported numeric knobs; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | L1 instruction-cache geometry |
+| `ICACHE_HIT_LATENCY` | 0 cycles | Operational model fact, not a standard sweep key; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Front-end stall charged on an I-cache hit |
+| `DCACHE_SIZE` / `DCACHE_WAYS` | 32 KiB / 8 | Supported numeric knobs; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | L1 data-cache geometry |
+| `DCACHE_HIT_LATENCY` | 1 cycle | Operational model fact, not a standard sweep key; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Extra modeled D-cache hit latency on top of ISS behavior |
+| D-cache write policy | no write allocate; write-through; 8-entry buffer | Operational model facts; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Store-miss allocation and draining to L2 |
+| `LINE_SIZE` | 64 bytes | Supported numeric knob; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Line size shared by I-cache, D-cache, and L2 |
+| `L2_SIZE` / `L2_WAYS` | 512 KiB / 8 | Supported numeric knobs; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Shared host-side L2 geometry |
+| `L2_LATENCY` | 10 cycles | Operational model fact, not a standard sweep key; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | L2 hit latency |
+| `L2_WIDTH` | 16 bytes/cycle | Operational model fact, not a standard sweep key; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | L1-to-L2 refill width |
+| `HOST_HEAP_SIZE` | 8 MiB | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Heap used by generated `InitNetwork` allocations |
+| `HOST_STACK_SIZE` | 256 KiB | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Host stack size |
+| `HOST_LOAD_SIZE` | 64 MiB | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Host ELF image window |
 
 Every cache above (I$, D$, L2) is one instance of the same generic
-`TimingCache` model, so the full set of knobs any cache level exposes is
+`TimingCache` model, whose full property surface is
 `size`, `line_size`, `ways`, `hit_latency`, `miss_latency`, `refill_cycles`,
 `write_cycles`, `write_allocate`, `store_buffer_size` — see
-[timing_cache.py:44-48](../targets/hetero/timing_cache.py:44). Only the ones
+[`targets/hetero/timing_cache.py`](../targets/hetero/timing_cache.py). Only the ones
 each level actually sets non-default are listed in the table; e.g.
 `miss_latency` is left at 0 everywhere today (the "next level" latency is
-charged by that level's own mapping instead), so it is itself an unused knob
-worth trying.
+charged by that level's own mapping instead). A model property outside
+`design.DEFAULTS` is not a supported standard sweep key; adding one requires
+the operational, identity, provenance, and validation work in
+[Extending M4IA](extending-m4ia.md#adding-a-hardware-design-knob).
 
 ## 2. Snitch cluster (integer core + Xssr/Xfrep FP subsystem)
 
-| Parameter | Current value | Where | What it controls |
+The baseline count is not fixed: `SNITCH_NB_CORE` is a supported numeric key.
+The runtime convention reserves one resolved core for control/DMA and treats
+the remainder as compute cores.
+
+| Parameter | Baseline/current value | Class and owner | What it controls |
 |---|---|---|---|
-| `nb_core` | 9 (8 compute + 1 DMA/ctrl) | [soc.py:238](../targets/hetero/soc.py:238) | Cores in the cluster — snRuntime convention is compute cores + 1 dedicated DMA core |
-| `isa` | `rv32imfdca` | [soc.py:241](../targets/hetero/soc.py:241) | Scalar ISA (no vector extension — that's what makes it "Snitch" and not "Spatz") |
-| `core_type` | `accurate` | [soc.py:240](../targets/hetero/soc.py:240) | Accurate vs. `fast` ISS model — `fast` is quicker to simulate but drops the decoupled FP subsystem that Xssr/Xfrep numbers depend on (noted as a real trade-off, not a free switch, in [hetero-mesh-plan.md:169-171](../docs/hetero-mesh-plan.md)) |
-| `nb_perf_counters` | 16 | [soc.py:242](../targets/hetero/soc.py:242) | Hardware perf-counter registers exposed per cluster |
-| `TCDM_SIZE` | 128 KiB | [system.py:79](../targets/hetero/system.py:79) | Scratchpad capacity per cluster (banked, single-cycle) |
-| `CLUSTER_STACK_SIZE` | 4 KiB/core | [system.py:297](../targets/hetero/system.py:297) | Stack budget carved out of TCDM per core |
-| `PERIPHERAL_SIZE` | 64 KiB | [system.py:81](../targets/hetero/system.py:81) | Address window for the cluster's peripheral regmap |
-| `base` (cluster address) | `0x1000_0000` | [system.py:237](../targets/hetero/system.py:237) | Where the Snitch cluster sits in the shared address space |
-| `CLUSTER_IRQ` | 19 | [system.py:102](../targets/hetero/system.py:102) | Interrupt line the host's mailbox doorbell raises on the cluster's control core |
+| `SNITCH_NB_CORE` | 9 = 8 compute + 1 control/DMA | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Total modeled cores; `ResourceSummary` derives the resolved split |
+| `TCDM_SIZE` | 128 KiB | Supported numeric knob shared by both clusters; [targets/hetero/system.py](../targets/hetero/system.py) | Banked scratchpad capacity |
+| ISA | `rv32imfdca` | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Scalar ISA with the Snitch FP subsystem and no RVV |
+| core model | `accurate` | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Retains the decoupled FP subsystem needed by Xssr/Xfrep kernels |
+| performance counters | 16 | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Cluster register-file counter count |
+| `CLUSTER_STACK_SIZE` | 4 KiB per resolved core | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Per-core stack carved from TCDM |
+| peripheral window | 64 KiB | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Cluster peripheral register window |
+| cluster base | `0x1000_0000` | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Snitch cluster address-space base |
+| `CLUSTER_IRQ` | 19 | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Cluster-local interrupt used by the mailbox doorbell |
 | TCDM banking (32 banks × 8 B, 256 B interleave) | fixed | GVSoC's `ClusterArch`/`SnitchCluster` model (not a constant in this repo — see [relatorio-desenvolvimento.md §6.4](relatorio-desenvolvimento.md)) | Bank-conflict behavior of strided TCDM accesses; changing it means forking the upstream GVSoC class, not editing a constant here |
 | Xssr / Xfrep | fixed feature, not sized | — | Stream Semantic Registers / FP-repeat sequencer that removes load/address-generation and loop overhead — the reason a scalar Snitch core beats naive RVV in dense FMA loops |
 
 ## 3. Spatz cluster (Snitch core + RVV vector unit)
 
-| Parameter | Current value | Where | What it controls |
+`SPATZ_NB_CORE`, vector geometry, and shared TCDM size are supported design
+keys. The baseline again uses one control/DMA core and eight compute cores.
+
+| Parameter | Baseline/current value | Class and owner | What it controls |
 |---|---|---|---|
-| `nb_core` | 9 (8 compute + 1 DMA/ctrl) | [soc.py:259](../targets/hetero/soc.py:259) | Cores in the cluster (raised from GVSoC's stock 2-core Spatz board to match the Snitch cluster's compute count) |
-| `isa` | `rv32imfdcav` | [soc.py:262](../targets/hetero/soc.py:262) | Scalar ISA + `v` (RVV) |
-| `spatz_nb_lanes` | 4 | [soc.py:263](../targets/hetero/soc.py:263) | Vector lanes per Spatz core |
-| `nb_perf_counters` | 2 | [soc.py:264](../targets/hetero/soc.py:264) | Hardware perf-counter registers exposed per cluster |
-| `core_type` | ignored | [soc.py:261](../targets/hetero/soc.py:261) | A Spatz cluster always runs the `SnitchFast` model regardless of this field |
-| `base` (cluster address) | `0x0010_0000` | [system.py:258](../targets/hetero/system.py:258) | Where the Spatz cluster sits in the shared address space |
-| TCDM / stack / peripheral sizing | shared with Snitch cluster | §2 above | Same `Cluster` class, same constants — a Spatz cluster's vector load/store unit is wired to TCDM only, so its working set *must* fit there (enforced in [engines.py:53-56](../pipeline/hetero_platform/engines.py:53)) |
+| `SPATZ_NB_CORE` | 9 = 8 compute + 1 control/DMA | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Total modeled cores; independent of the Snitch count |
+| `SPATZ_VLEN` | 512 bits | Supported numeric/build-time knob; [targets/hetero/system.py](../targets/hetero/system.py) | Vector-register length per modeled Spatz core |
+| `SPATZ_NB_LANES` | 4 | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Vector lanes per modeled Spatz core |
+| `SPATZ_LANE_WIDTH` | 8 bytes | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Datapath width of each lane |
+| ISA | `rv32imfdcav` | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Scalar ISA plus RVV |
+| performance counters | 2 | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Cluster register-file counter count |
+| core model | `SnitchFast` operationally | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) and [targets/hetero/soc.py](../targets/hetero/soc.py) | Spatz construction ignores the nominal `accurate` property for its core type |
+| cluster base | `0x0010_0000` | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Spatz cluster address-space base |
+| TCDM / stack / peripheral sizing | shared rules, resolved per cluster | Supported TCDM key plus operational facts; [targets/hetero/system.py](../targets/hetero/system.py) | VLSU operands must fit TCDM; compatibility uses the cluster-specific resolved budget in [pipeline/hetero_platform/engines.py](../pipeline/hetero_platform/engines.py) |
+
+At the baseline, Spatz has 36 modeled lanes and 32 useful compute lanes. Those
+counts change with resolved core/lane knobs; `ResourceSummary` computes them and
+does not treat the baseline as immutable.
 
 ## 4. Interconnect and shared memory system
 
-| Parameter | Current value | Where | What it controls |
+AXI widths are supported numeric design knobs. Clock, addressing, mailbox, and
+fixed-path timing are current model facts. Main-memory selection is resolved
+separately from `design.DEFAULTS`.
+
+| Parameter | Baseline/current value | Class and owner | What it controls |
 |---|---|---|---|
-| `FREQUENCY` | 1 GHz | [memsys.py:33](../targets/hetero/memsys.py:33) (re-exported by system.py) | Single clock domain for host, both clusters and memory. Was 10 MHz; nothing was time-based then, so the change is cycle-neutral for `DRAM_KIND=fixed` (verified on MatMul per core and on the SoC). It matters once main memory is a real device: its timings are in ns, so this sets what a DRAM access costs in cycles |
-| `DRAM_KIND` | `fixed` | [memsys.py:43](../targets/hetero/memsys.py:43) | What main memory is: `fixed` (the two knobs below), or a device model behind the caches -- `lpddr4` (LPDDR4-3200 x16), `lpddr4x` (LPDDR4X-4266 x16), `lpddr5` (LPDDR5-6400 x16, 4 bank groups), `hyperram` (HyperRAM 2.0 x8 @ 200 MHz). Presets and sources in [dram_presets.py](../targets/hetero/dram_presets.py); `--dram` on run.py / run_hetero.py / sweep/run.py |
-| `DRAM_OVERRIDES` | `{}` | [memsys.py:62](../targets/hetero/memsys.py:62) | Per-field overrides of the device preset, in ps for timings (e.g. `{"channels": 2, "mapping": "RoBaCoCh", "ctrl_ps": 30000}`). Field names are `hetero_dram::int_fields()` |
-| `L2_WRITEBACK` | `DRAM_KIND != 'fixed'` | [memsys.py:130](../targets/hetero/memsys.py:130) | Write-back L2: only refills and dirty evictions reach main memory. Off for `fixed` so its results stay what they were |
-| `narrow_axi` bandwidth | 8 bytes/cycle | [soc.py:106](../targets/hetero/soc.py:106) | Bus width for core data accesses and host→cluster traffic |
-| `wide_axi` bandwidth | 64 bytes/cycle | [soc.py:107](../targets/hetero/soc.py:107) | Bus width for cluster DMA and instruction-cache refills |
-| `DRAM_LATENCY` | 100 cycles (`fixed`) | [memsys.py:51](../targets/hetero/memsys.py:51) | Latency of an access reaching main memory (shared by all three cores since [snitch_memsys.py](../targets/hetero/snitch_memsys.py), which retunes GVSoC's stock 0-cycle Spatz HBM to this same value). With a device it is not a knob but derived: the unloaded closed-row line read (72 cycles LPDDR4, 67 LPDDR4X, 69 LPDDR5, 265 HyperRAM at 1 GHz) |
-| `DRAM_WIDTH` | 8 bytes/cycle (`fixed`) | [memsys.py:56](../targets/hetero/memsys.py:56) | Port bandwidth to main memory, sets how long a line refill occupies the port. Not used with a device, which owns the bandwidth |
-| `HBM_SIZE` | 2 GiB | [system.py:28](../targets/hetero/system.py:28) | Shared main memory capacity, one pool for host + both clusters |
-| `MAILBOX_SIZE` | 512 B | [system.py:279](../targets/hetero/system.py:279) | Job-descriptor size the host can post to a cluster |
-| `MAILBOX_MAX_ARGS` | 16 | [system.py:280](../targets/hetero/system.py:280) | Argument slots in a job descriptor |
-| Address-map windows (`HOST_LOAD_SIZE`, `SNITCH_LOAD_SIZE`, `SPATZ_LOAD_SIZE`, `DRAM_SIZE`, …) | 64 MiB each | [system.py:35-50](../targets/hetero/system.py:35) | How the shared address space is partitioned between the three ELF images and peripherals |
+| `NARROW_AXI_WIDTH` | 8 bytes/cycle | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Host accesses to cluster address space |
+| `WIDE_AXI_WIDTH` | 64 bytes/cycle | Supported numeric knob; [targets/hetero/system.py](../targets/hetero/system.py) | Cluster DMA, instruction refills, and shared main-memory traffic |
+| `FREQUENCY` | 1 GHz | Operational model fact, not a standard sweep key; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Single clock domain; converts modeled device timings to cycles |
+| `DRAM_KIND` | `fixed` by default | Separate resolved memory identity; [targets/hetero/memsys.py](../targets/hetero/memsys.py) and [targets/hetero/dram_presets.py](../targets/hetero/dram_presets.py) | Selects `fixed`, `lpddr4`, `lpddr4x`, `lpddr5`, or `hyperram` |
+| `DRAM_OVERRIDES` | `{}` | Separate effective memory identity; [targets/hetero/dram_presets.py](../targets/hetero/dram_presets.py) | Valid preset-field overrides; not an integer design knob |
+| L2 write policy | write-through for `fixed`; write-back for modeled devices | Derived default in [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Prevents every store from becoming a modeled device write burst |
+| `DRAM_LATENCY` | 100 cycles for `fixed`; derived nominal value for devices | Fixed-path model fact / device consequence; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Mapping latency for fixed memory and nominal header/peripheral value for a modeled device |
+| `DRAM_WIDTH` | 8 bytes/cycle for `fixed`; device-owned otherwise | Fixed-path model fact; [targets/hetero/memsys.py](../targets/hetero/memsys.py) | Serializes fixed-path line refills; device model owns its own bandwidth |
+| `HBM_SIZE` | 2 GiB | Fixed operational fact; [targets/hetero/system.py](../targets/hetero/system.py) | Shared main-memory capacity |
+| `MAILBOX_SIZE` / `MAILBOX_MAX_ARGS` | 512 B / 16 | Fixed operational facts; [targets/hetero/system.py](../targets/hetero/system.py) | Per-cluster job descriptor and argument capacity |
+| host/Snitch/Spatz ELF windows | 64 MiB each | Fixed operational facts; [targets/hetero/system.py](../targets/hetero/system.py) | Non-overlapping load-image windows in shared memory |
+| DRAM/stdout/control peripheral windows | 256 MiB each | Fixed operational facts; [targets/hetero/system.py](../targets/hetero/system.py) | Host peripheral address-space regions; these are not the 64 MiB ELF windows |
 
 ## 5. Memory-model switch (evaluation knob, not a chip parameter)
 
 | Parameter | Values | Where | What it controls |
 |---|---|---|---|
-| `--memory` | `real` (default) / `ideal` | [run.py:69-73](../pipeline/run.py:69), CLI flag in `pipeline/run.py` | Swaps the modelled cache/DRAM timing above for zero-latency memory, isolating compute cost from memory-system cost — useful to attribute a design change to the memory system vs. the core |
+| `--memory` | `real` (default) / `ideal` | Standalone [pipeline/run.py](../pipeline/run.py) control | Selects modeled-memory targets or the available idealized/zero-latency-memory targets. It supports memory-sensitivity comparison but does not isolate computation alone: instruction execution, runtime, instrumentation, synchronization, and other simulator effects remain. Ara has no separate ideal target and continues to use `ara_host`. |
+
+`--dram` applies under the modeled (`real`) standalone path and on the
+heterogeneous runner/sweep. It selects resolved main-memory identity; it is not
+an alternative spelling for `--memory`.
 
 ## 6. Cost model (software layer that evaluates the hardware design)
 
@@ -119,33 +194,35 @@ loop.
 
 | Parameter | Current value | Where | What it controls |
 |---|---|---|---|
-| `RATES` | per-engine, per-op MACs/cycle table | [mapper.py:44-50](../pipeline/hetero_platform/mapper.py:44) | Throughput used to estimate a node's cost on each engine |
-| `OFFLOAD_FIXED` | cva6: 0, snitch/spatz: 1200 cycles | [mapper.py:63](../pipeline/hetero_platform/mapper.py:63) | Fixed cost of a mailbox round trip, charged per offload |
-| `OFFLOAD_PER_BYTE` | cva6: 0.0, snitch/spatz: 0.10 cycles/byte | [mapper.py:66](../pipeline/hetero_platform/mapper.py:66) | Cost of staging operands into/out of cluster TCDM |
-| `TCDM_BUDGET` | `TCDM_SIZE` minus mailbox and per-core stacks | [engines.py:53-56](../pipeline/hetero_platform/engines.py:53) | Bytes of TCDM a job's operands may actually use |
+| `RATES` | per-host/engine, per-op MACs/cycle table | [pipeline/hetero_platform/mapper.py](../pipeline/hetero_platform/mapper.py) | Committed estimate table, replaced as a whole by a valid external `HES_RATES` table |
+| `OFFLOAD_FIXED` | cva6: 0, snitch/spatz: 1200 cycles | [pipeline/hetero_platform/mapper.py](../pipeline/hetero_platform/mapper.py) | Fixed mailbox/offload cost charged per cluster node |
+| `OFFLOAD_PER_BYTE` | cva6: 0.0, snitch/spatz: 0.10 cycles/byte | [pipeline/hetero_platform/mapper.py](../pipeline/hetero_platform/mapper.py) | Cost of staging operands into and out of TCDM |
+| cluster TCDM budget | resolved `TCDM_SIZE` minus mailbox, resolved per-core stacks, and 8 KiB reserve | [pipeline/hetero_platform/engines.py](../pipeline/hetero_platform/engines.py) | Per-cluster operand capacity used by compatibility checks |
 
 ## 7. Not modelled yet (open design space, from `hetero-mesh-plan.md`)
 
 The project's own roadmap ([hetero-mesh-plan.md](hetero-mesh-plan.md)) lists
-further axes that would extend the design space but need new modelling work
-before they become constants like the ones above:
+further axes that would extend the design space but need new modeling work
+before they become supported keys like the ones above. Core counts are omitted
+from this table because `SNITCH_NB_CORE` and `SPATZ_NB_CORE` are already
+supported numeric dimensions.
 
 | Parameter | Planned value / range | Why it's not a constant yet |
 |---|---|---|
-| Cluster count | 2 (current) vs. 8 (target architecture) | 8 clusters × 9 cores is 73 ISS instances — a simulation-throughput cost, not a code change ([hetero-mesh-plan.md §5](hetero-mesh-plan.md)) |
-| Cores per cluster | 9 (fixed at 8 compute + 1 DMA) | Changeable via `nb_core`, but snRuntime and the address-map constants above assume this split |
+| Number of clusters | two current named clusters; more proposed historically | Requires target address map, images, runtime/mailboxes, engine identity, mapping, provenance, and simulation-throughput work ([hetero-mesh-plan.md](hetero-mesh-plan.md)) |
 | Mixed-core clusters | homogeneous only | Would need a new cluster class — GVSoC currently builds every core in a cluster from one class |
 | D2D link `link_latency_ns` / `link_bandwidth_GBps` | unset | `D2DLink` exists in GVSoC (`pulp/chips/soft_hier_old/c2c_platform/`) but is wired to nothing in this board |
 | L3 (die-stacked scratchpad) size/latency | unset | Memory hierarchy stops at L2 → HBM today; no L3 level modelled |
-| `core_type='fast'` | not used | Faster ISS but drops the decoupled FP subsystem Xssr/Xfrep numbers depend on — a real accuracy/speed trade-off, not a free switch |
+| Selectable Snitch core model | fixed to `accurate` | A faster ISS would drop the decoupled FP subsystem that Xssr/Xfrep measurements depend on; Spatz separately uses its required `SnitchFast` construction |
 
 ## Notes for the thesis
 
-- Every "tunable now" parameter is a plain Python constant read by the GVSoC
-  board (`targets/hetero/soc.py`) and by the C runtime through a generated
-  header (`pipeline/gen_system_header.py` → `runtime/mesh/hes_system.h`), so
-  changing one and re-running `pipeline/run_hetero.py` is the entire
-  experiment loop — no RTL, no re-synthesis.
+- Supported numeric keys are resolved through `pipeline/sweep/design.py`, read
+  by the target model, and propagated to the C runtime where required through
+  `pipeline/gen_system_header.py` and `runtime/mesh/hes_system.h`. The two VLEN
+  keys are build-time dimensions; other supported keys reuse a compatible
+  build. Operational propagation and scientific causality must still be
+  validated per key.
 - The **TCDM banking** of both clusters (32 banks × 8 B, 256 B interleave
   period) is the one hardware detail in this design that is *not* a constant
   in this repo — it's fixed inside GVSoC's own `SnitchCluster`/`ClusterArch`
@@ -154,7 +231,7 @@ before they become constants like the ones above:
   [relatorio-desenvolvimento.md §6.4](relatorio-desenvolvimento.md)) — a
   parameter worth calling out as "fixed by the platform" rather than omitting.
 - The clock frequency (`FREQUENCY`) is a single domain for the whole chip by
-  design ([system.py:19-21](../targets/hetero/system.py:19)): a cycle
+  design ([targets/hetero/system.py](../targets/hetero/system.py)): a cycle
   difference between engines in the results is a difference in work per
   cycle, never a difference in clocking. Splitting it into per-engine domains
   would be a design change with its own trade-off (cross-domain

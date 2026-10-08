@@ -15,6 +15,10 @@ use std::path::PathBuf;
 pub const CORES: [&str; 4] = ["cva6", "snitch", "spatz", "ara"];
 const PLACEMENTS: [&str; 4] = ["mapped", "cva6", "snitch", "spatz"];
 
+fn with_explicit_dram(inv: Invocation, dram: DramChoice) -> Invocation {
+    inv.arg("--dram").arg(dram.arg())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Isolated,
@@ -224,9 +228,7 @@ impl State {
                         .arg(timeout.to_string())
                         .arg("--out")
                         .arg(out.clone());
-                    if dram != DramChoice::Fixed {
-                        inv = inv.arg("--dram").arg(dram.arg());
-                    }
+                    inv = with_explicit_dram(inv, dram);
                     let mem = if dram == DramChoice::Fixed { self.memory.to_string() } else { dram.arg().to_string() };
                     jobs.push(NewJob {
                         title: format!("{op} on {} ({mem} memory)", cores.join(", ")),
@@ -250,8 +252,8 @@ impl State {
                             inv = inv.arg("--pin").arg(p);
                         }
                         inv = inv.arg("--images").arg(images.to_string()).flag(self.power, "--power").arg("-q");
+                        inv = with_explicit_dram(inv, self.dram);
                         if self.dram != DramChoice::Fixed {
-                            inv = inv.arg("--dram").arg(self.dram.arg());
                             tag += &format!("-{}", self.dram.arg());
                         }
                         if kws {
@@ -610,6 +612,25 @@ impl State {
             }
         }
         container(body).padding(10).style(container::rounded_box).width(Length::Fill).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_jobs_make_fixed_memory_explicit() {
+        let invocation =
+            with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Fixed);
+        assert_eq!(invocation.args, vec!["--dram".to_string(), "fixed".to_string()]);
+    }
+
+    #[test]
+    fn compare_jobs_keep_non_fixed_memory_explicit() {
+        let invocation =
+            with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Lpddr5);
+        assert_eq!(invocation.args, vec!["--dram".to_string(), "lpddr5".to_string()]);
     }
 }
 

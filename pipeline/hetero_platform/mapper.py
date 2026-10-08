@@ -22,22 +22,31 @@ The overhead term is the part that matters: it is what stops a small node
 being shipped to a cluster that would finish the arithmetic quickly and spend
 ten times longer getting the data there and back.
 
-Every number is a measurement or an arithmetic consequence of one; nothing here
-is a guess about hardware. --pin overrides the whole thing, which is how the
-mapper's choice gets checked against the alternatives rather than assumed.
+Named operator rates are measurements.  A row's explicit ``_default`` remains
+available as a documented proxy, and is kept distinguishable from a named
+operator rate.  Missing shapes, rates, offload terms, or implementation facts
+stay unavailable rather than being converted into a fabricated cost.  --pin
+keeps its existing compatible-node preference semantics, which is how the
+mapper's choice gets checked against an alternative rather than assumed.
 """
 
 import json
+import math
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 
 import onnx_graphsurgeon as gs
 
 from Deeploy.DeeployTypes import DeploymentEngine
 from Deeploy.EngineExtension.OptimizationPasses.TopologyOptimizationPasses.EngineColoringPasses import EngineMapper
 
-from .engines import ClusterEngine, working_set_bytes
+from .engines import ClusterEngine, _all_fp32, working_set_bytes
+
+try:  # Pipeline scripts import hetero_platform as a top-level package.
+    from experiment.matmul_gemm_implementation import resolve_matmul_gemm_implementation
+except ImportError:  # Package imports used by unit tests and tooling.
+    from pipeline.experiment.matmul_gemm_implementation import resolve_matmul_gemm_implementation
 
 # MACs per cycle, per engine and operator class.
 #
@@ -77,6 +86,11 @@ OFFLOAD_FIXED = {"cva6": 0, "snitch": 1200, "spatz": 1200}
 # Cycles per byte staged into TCDM and back, from the same measurements.
 OFFLOAD_PER_BYTE = {"cva6": 0.0, "snitch": 0.10, "spatz": 0.10}
 
+RATE_TABLE_SOURCE = {
+    "kind": "committed_rate_table",
+    "path": "pipeline/hetero_platform/mapper.py",
+}
+
 
 # A design-space sweep changes the very hardware these numbers measure, so a
 # swept design would otherwise be mapped by another machine's arithmetic -- a
@@ -87,57 +101,131 @@ OFFLOAD_PER_BYTE = {"cva6": 0.0, "snitch": 0.10, "spatz": 0.10}
 # Unset, the committed tables above are used unchanged, so nothing about the
 # existing pipeline moves.
 def _load_measured_tables() -> None:
+    global RATE_TABLE_SOURCE
     path = os.environ.get("HES_RATES")
     if not path:
         return
     blob = json.loads(Path(path).read_text())
-    for name, table in (("RATES", RATES), ("OFFLOAD_FIXED", OFFLOAD_FIXED),
-                        ("OFFLOAD_PER_BYTE", OFFLOAD_PER_BYTE)):
-        measured = blob.get(name)
-        if measured is None:
+    if not isinstance(blob, dict):
+        raise RuntimeError(f"{path} must contain a JSON object of measured tables")
+
+    active = (
+        ("RATES", RATES),
+        ("OFFLOAD_FIXED", OFFLOAD_FIXED),
+        ("OFFLOAD_PER_BYTE", OFFLOAD_PER_BYTE),
+    )
+    replacements = {}
+    for name, _table in active:
+        if name not in blob:
             raise RuntimeError(f"{path} has no {name} -- it is not a table "
                                "produced by pipeline/sweep/calibrate.py")
-        # Replace rather than merge: a partial table would silently mix two
-        # machines' measurements, which is the whole failure this avoids. The
-        # host row is the exception -- it is named for the board (cva6/ara) and
-        # the calibration only ever measures the one it ran on.
-        table.update(measured)
+        measured = blob[name]
+        if not isinstance(measured, dict):
+            raise RuntimeError(f"{path} has a non-object {name} table")
+        replacements[name] = measured
+
+    # Validate all three before mutating any module global. Replacement is
+    # deliberate: merging a partial calibration with committed rows would mix
+    # measurements from different machines. A selected Ara host legitimately
+    # supplies an `ara` row instead of `cva6`; the mapper selects that row via
+    # self.host rather than retaining a stale scalar-host row.
+    for name, table in active:
+        table.clear()
+        table.update(replacements[name])
+    RATE_TABLE_SOURCE = {
+        "kind": "external_rate_table",
+        "path": str(Path(path)),
+    }
 
 
 _load_measured_tables()
 
 
-def node_macs(node: gs.Node) -> float:
-    """Multiply-accumulates the node performs, from its shapes.
+def _static_shape(tensor):
+    shape = getattr(tensor, "shape", None)
+    if not shape or any(
+        not isinstance(dimension, int)
+        or isinstance(dimension, bool)
+        or dimension < 0
+        for dimension in shape
+    ):
+        return None
+    return list(shape)
 
-    Used only to compare engines against each other, so an operator whose cost
-    is not dominated by MACs just needs a consistent number rather than an
-    exact one.
-    """
 
-    def shape_of(tensor):
-        shape = getattr(tensor, "shape", None)
-        if not shape or any(not isinstance(d, int) for d in shape):
+def node_macs(node: gs.Node) -> float | None:
+    """Current MAC estimate, or None when any required extent is unknown."""
+    output = _static_shape(node.outputs[0]) if node.outputs else None
+    if output is None:
+        return None
+    output_elements = 1
+    for dimension in output:
+        output_elements *= dimension
+
+    if node.op in ("Gemm", "MatMul"):
+        if len(node.inputs) < 2:
             return None
-        return list(shape)
+        left = _static_shape(node.inputs[0])
+        return output_elements * left[-1] if left else None
+    if node.op == "Conv":
+        if len(node.inputs) < 2:
+            return None
+        weights = _static_shape(node.inputs[1])
+        if weights is None:
+            return None
+        taps = 1
+        for dimension in weights[1:]:
+            taps *= dimension
+        return output_elements * taps
+    return float(output_elements)
 
-    out = shape_of(node.outputs[0]) if node.outputs else None
-    out_elems = 1
-    for d in (out or [1]):
-        out_elems *= d
 
-    if node.op in ("Gemm", "MatMul") and len(node.inputs) >= 2:
-        a = shape_of(node.inputs[0])
-        if a:
-            return out_elems * a[-1]
-    elif node.op == "Conv" and len(node.inputs) >= 2:
-        w = shape_of(node.inputs[1])
-        if w:
-            taps = 1
-            for d in w[1:]:
-                taps *= d
-            return out_elems * taps
-    return float(out_elems)
+def _integer_attribute(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+    return None
+
+
+def matmul_gemm_implementation(engine_name: str, node: gs.Node) -> dict | None:
+    """Audited cluster implementation state, or None when not applicable."""
+    if engine_name not in {"snitch", "spatz"} or node.op not in {"MatMul", "Gemm"}:
+        return None
+    if len(node.inputs) < 2:
+        return resolve_matmul_gemm_implementation(engine_name, node.op, None, None, None)
+
+    left = _static_shape(node.inputs[0])
+    right = _static_shape(node.inputs[1])
+    if left is None or right is None or len(left) < 2 or len(right) < 2:
+        return resolve_matmul_gemm_implementation(engine_name, node.op, None, None, None)
+
+    trans_a = trans_b = 0
+    if node.op == "Gemm":
+        attributes = getattr(node, "attrs", None)
+        if not isinstance(attributes, Mapping):
+            return resolve_matmul_gemm_implementation(
+                engine_name, node.op, None, None, None, transA=None, transB=None,
+            )
+        trans_a = _integer_attribute(attributes.get("transA", 0))
+        trans_b = _integer_attribute(attributes.get("transB", 0))
+        if trans_a is None or trans_b is None:
+            return resolve_matmul_gemm_implementation(
+                engine_name, node.op, None, None, None,
+                transA=attributes.get("transA"), transB=attributes.get("transB"),
+            )
+
+    m = left[-1] if trans_a else left[-2]
+    n = left[-2] if trans_a else left[-1]
+    o = right[-2] if trans_b else right[-1]
+    return resolve_matmul_gemm_implementation(
+        engine_name, node.op, m, n, o, transA=trans_a, transB=trans_b,
+    )
 
 
 class CostEngineMapper(EngineMapper):
@@ -159,35 +247,278 @@ class CostEngineMapper(EngineMapper):
         self.pin = pin
         self.host = host
         self.decisions = []  #: (node name, op, engine, cost) for the report
+        self.explanations = []  #: descriptive shadows of completed decisions
 
-    def cost(self, engine: DeploymentEngine, node: gs.Node) -> float:
-        # The host is priced by what it is; a missing row for it is an error
-        # rather than a silent fall back to another core's measurements.
+    def cost_breakdown(self, engine: DeploymentEngine, node: gs.Node) -> dict:
+        """Return a defensible numeric cost or an explicit unavailable reason."""
+        implementation = matmul_gemm_implementation(engine.name, node)
+        if implementation is not None:
+            if implementation["unknown_reason"] is not None:
+                return {
+                    "evaluated": False,
+                    "reason": "matmul_gemm_implementation_unavailable",
+                    "implementation": implementation,
+                }
+            if implementation["fallback_used"]:
+                return {
+                    "evaluated": False,
+                    "reason": "deterministic_generic_fallback_has_no_generic_rate",
+                    "implementation": implementation,
+                }
+
         if engine.name == "cva6":
-            rates = RATES[self.host]
+            rates = RATES.get(self.host)
+            missing_row = "missing_host_rate_row"
+            rate_row = {"kind": "host_profile", "key": self.host}
         else:
-            rates = RATES.get(engine.name, RATES["cva6"])
-        rate = rates.get(node.op, rates["_default"])
-        compute = node_macs(node) / rate
-        overhead = OFFLOAD_FIXED.get(engine.name, 0)
+            rates = RATES.get(engine.name)
+            missing_row = "missing_engine_rate_row"
+            rate_row = {"kind": "engine", "key": engine.name}
+        if not isinstance(rates, dict):
+            return {
+                "evaluated": False,
+                "reason": missing_row,
+                "rate_row": rate_row,
+                "rate_table": dict(RATE_TABLE_SOURCE),
+            }
+
+        if node.op in rates:
+            rate_key = node.op
+            rate_kind = "operator_rate"
+        elif "_default" in rates:
+            rate_key = "_default"
+            rate_kind = "explicit_default_proxy"
+        else:
+            rate_key = node.op
+            rate_kind = "unavailable"
+        rate = rates.get(rate_key)
+        if (
+            not isinstance(rate, (int, float))
+            or isinstance(rate, bool)
+            or not math.isfinite(rate)
+            or rate <= 0
+        ):
+            return {
+                "evaluated": False,
+                "reason": "missing_or_invalid_operator_rate",
+                "rate_key": rate_key,
+                "rate_kind": rate_kind,
+                "rate_row": rate_row,
+                "rate_table": dict(RATE_TABLE_SOURCE),
+            }
+
+        macs = node_macs(node)
+        if macs is None:
+            return {"evaluated": False, "reason": "shape_derived_macs_unavailable"}
+
+        fixed = 0
+        per_byte = 0.0
+        staged_bytes = None
         if isinstance(engine, ClusterEngine):
-            overhead += OFFLOAD_PER_BYTE.get(engine.name, 0.0) * working_set_bytes(node)
-        return compute + overhead
+            staged_bytes = working_set_bytes(node)
+            if staged_bytes is None:
+                return {"evaluated": False, "reason": "working_set_bytes_unavailable"}
+            fixed = OFFLOAD_FIXED.get(engine.name)
+            per_byte = OFFLOAD_PER_BYTE.get(engine.name)
+            if (
+                not isinstance(fixed, (int, float))
+                or isinstance(fixed, bool)
+                or not math.isfinite(fixed)
+                or fixed < 0
+                or not isinstance(per_byte, (int, float))
+                or isinstance(per_byte, bool)
+                or not math.isfinite(per_byte)
+                or per_byte < 0
+            ):
+                return {
+                    "evaluated": False,
+                    "reason": "missing_or_invalid_cluster_offload_cost",
+                }
+
+        transfer = per_byte * staged_bytes if staged_bytes is not None else 0.0
+        total = macs / rate + fixed + transfer
+        return {
+            "evaluated": True,
+            "macs": macs,
+            "rate_macs_per_cycle": rate,
+            "rate_key": rate_key,
+            "rate_kind": rate_kind,
+            "rate_row": rate_row,
+            "rate_table": dict(RATE_TABLE_SOURCE),
+            "fixed_offload_cycles": fixed,
+            "working_set_bytes": staged_bytes,
+            "per_byte_offload_cycles": per_byte if staged_bytes is not None else None,
+            "transfer_offload_cycles": transfer if staged_bytes is not None else None,
+            "total_estimated_cycles": total,
+        }
+
+    @staticmethod
+    def _incompatibility_reason(engine: DeploymentEngine, node: gs.Node) -> str:
+        """Explain a failed current canExecute check without changing it."""
+        if isinstance(engine, ClusterEngine):
+            if not engine.enabled:
+                return "cluster_disabled"
+            if node.op not in engine.Mapping:
+                return "operator_not_in_cluster_mapping"
+            if not _all_fp32(node):
+                return "node_not_fp32"
+            staged_bytes = working_set_bytes(node)
+            if staged_bytes is None:
+                return "working_set_bytes_unavailable"
+            if staged_bytes > engine.tcdm_budget:
+                return "working_set_exceeds_tcdm_budget"
+        if node.op not in engine.Mapping:
+            return "operator_not_in_engine_mapping"
+        return "compatibility_reason_unknown"
+
+    def _record_explanation(
+        self,
+        node: gs.Node,
+        candidates,
+        selected,
+        selected_cost,
+        *,
+        pin_selected: bool,
+        cost_details: dict | None = None,
+    ) -> None:
+        """Record descriptive state after a selection decision has been made."""
+        cost_details = cost_details or {}
+        entries = []
+        for engine in self.engineDict.values():
+            compatible = engine in candidates
+            retained = compatible and (
+                not pin_selected or engine.name == self.pin
+            )
+            incompatibility_reason = (
+                None if compatible else self._incompatibility_reason(engine, node)
+            )
+            if compatible:
+                cost = cost_details.get(engine.name)
+                if cost is None:
+                    try:
+                        cost = self.cost_breakdown(engine, node)
+                    except Exception as error:
+                        # Explanation collection must never change compatible
+                        # pin behavior merely because an unused cost cannot be
+                        # described. Automatic selection still evaluates costs
+                        # through the unchanged fail-loud path above.
+                        cost = {
+                            "evaluated": False,
+                            "reason": "cost_breakdown_error_during_observation",
+                            "error_type": type(error).__name__,
+                        }
+            else:
+                cost = {
+                    "evaluated": False,
+                    "reason": "engine_incompatible",
+                }
+
+            if not compatible:
+                pin_influence = (
+                    "pinned_engine_incompatible"
+                    if engine.name == self.pin
+                    else "incompatible_before_pin"
+                )
+            elif self.pin is None:
+                pin_influence = "not_requested"
+            elif pin_selected and engine.name == self.pin:
+                pin_influence = "retained_by_pin"
+            elif pin_selected:
+                pin_influence = "excluded_by_compatible_pin"
+            else:
+                pin_influence = "pin_not_applied"
+
+            entries.append({
+                "engine": engine.name,
+                "compatible": compatible,
+                "candidate_before_pin": compatible,
+                "candidate_after_pin": retained,
+                "incompatibility_reason": incompatibility_reason,
+                "exclusion_reason": (
+                    incompatibility_reason
+                    if not compatible
+                    else "excluded_by_compatible_pin" if not retained else None
+                ),
+                "pin_influence": pin_influence,
+                "cost": cost,
+                "cost_used_for_selection": (
+                    selected is engine and not pin_selected and selected_cost is not None
+                ),
+            })
+
+        if selected is None:
+            selection_rule = (
+                "compatible_engines_without_safe_automatic_cost"
+                if candidates
+                else "no_compatible_engine"
+            )
+        elif pin_selected:
+            selection_rule = "compatible_pinned_engine_selected"
+        else:
+            selection_rule = "minimum_safe_estimated_cost"
+
+        self.explanations.append({
+            "strategy": "measured_rate_greedy",
+            "node": node.name,
+            "operator": node.op,
+            "requested_pin": self.pin,
+            "pin_semantics": "compatible_node_preference_not_whole_graph",
+            "engines": entries,
+            "selected_engine": selected.name if selected is not None else None,
+            "selected_estimated_cost_cycles": selected_cost,
+            "selection_rule": selection_rule,
+        })
+
+    def cost(self, engine: DeploymentEngine, node: gs.Node) -> float | None:
+        breakdown = self.cost_breakdown(engine, node)
+        return breakdown["total_estimated_cycles"] if breakdown["evaluated"] else None
 
     def mapNodeToEngine(self, node: gs.Node, graph: gs.Graph) -> Optional[DeploymentEngine]:
         _ = graph
         candidates = [e for e in self.engineDict.values() if e.canExecute(node)]
         if not candidates:
+            self._record_explanation(
+                node, candidates, None, None, pin_selected=False,
+            )
             return None
 
         if self.pin is not None:
             pinned = self.engineDict.get(self.pin)
             if pinned is not None and pinned in candidates:
                 self.decisions.append((node.name, node.op, pinned.name, None))
+                self._record_explanation(
+                    node, candidates, pinned, None, pin_selected=True,
+                )
                 return pinned
 
-        best = min(candidates, key = lambda e: self.cost(e, node))
-        self.decisions.append((node.name, node.op, best.name, self.cost(best, node)))
+        priced = []
+        cost_details = {}
+        for engine in candidates:
+            breakdown = self.cost_breakdown(engine, node)
+            cost_details[engine.name] = breakdown
+            if breakdown["evaluated"]:
+                priced.append((engine, breakdown["total_estimated_cycles"]))
+        if not priced:
+            self._record_explanation(
+                node,
+                candidates,
+                None,
+                None,
+                pin_selected=False,
+                cost_details=cost_details,
+            )
+            return None
+
+        best, best_cost = min(priced, key=lambda item: item[1])
+        self.decisions.append((node.name, node.op, best.name, best_cost))
+        self._record_explanation(
+            node,
+            candidates,
+            best,
+            best_cost,
+            pin_selected=False,
+            cost_details=cost_details,
+        )
         return best
 
 
@@ -198,5 +529,7 @@ def make_mapper(pin: Optional[str] = None, host: str = "cva6"):
 
         def __init__(self, engineDict):
             super().__init__(engineDict, pin = pin, host = host)
+            _Mapper.last_instance = self
 
+    _Mapper.last_instance = None
     return _Mapper
