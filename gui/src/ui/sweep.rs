@@ -1,12 +1,13 @@
 //! Sweep editor: models, options and the design space; preview; launch.
 
 use super::common::*;
-use super::{Ctx, NewJob, Out, Tab, query, valid_name};
+use super::{Ctx, NewJob, Out, Tab, query, resolved, valid_name};
+use crate::experiment::{ExperimentRequest, ResolvedExperiment};
 use crate::jobs::JobKind;
 use crate::model::{Validation, fmt_knob_value};
 use crate::space::{Design, SpaceMode, SweepSpec, parse_values};
 use iced::widget::{
-    button, checkbox, column, container, pick_list, radio, row, scrollable, text, text_editor, text_input,
+    button, checkbox, column, container, pick_list, radio, row, scrollable, text, text_editor, text_input, tooltip,
 };
 use iced::{Element, Length, Task};
 use std::path::PathBuf;
@@ -22,6 +23,10 @@ pub struct State {
     /// Median seconds per cell over earlier sweeps, for the estimate.
     per_cell_s: Option<f64>,
     error: Option<String>,
+    /// The baseline cell of each model, as the backend resolves it.
+    resolved: Vec<(String, Result<ResolvedExperiment, String>)>,
+    resolving: bool,
+    resolved_open: Option<usize>,
 }
 
 impl Default for State {
@@ -33,6 +38,9 @@ impl Default for State {
             validating: false,
             per_cell_s: None,
             error: None,
+            resolved: Vec::new(),
+            resolving: false,
+            resolved_open: None,
         }
     }
 }
@@ -42,12 +50,12 @@ pub enum Msg {
     ToggleModel(String, bool),
     Preset(&'static [&'static str]),
     Name(String),
-    Host(&'static str),
+    Host(Choice),
     Images(String),
     Power(bool),
     Frontend(FrontendChoice),
     Serial(bool),
-    Dram(DramChoice),
+    Dram(Choice),
     Mode(SpaceMode),
     Values(String, String),
     LoadOfat,
@@ -55,6 +63,11 @@ pub enum Msg {
     ListEdit(text_editor::Action),
     Validate,
     Validated(Result<Validation, String>),
+    Resolve,
+    /// The spec the answers are for, and one answer per model.
+    Resolved(Box<SweepSpec>, Vec<(String, Result<ResolvedExperiment, String>)>),
+    OpenResolved(Option<usize>),
+    Copy(String),
     Save,
     Saved(Result<Option<PathBuf>, String>),
     Load,
@@ -138,7 +151,7 @@ impl State {
                 Out::none()
             }
             Msg::Host(h) => {
-                self.spec.host = h.into();
+                self.spec.host = h.value;
                 Out::none()
             }
             Msg::Images(s) => {
@@ -154,7 +167,7 @@ impl State {
                 Out::none()
             }
             Msg::Dram(d) => {
-                self.spec.dram = d.arg().into();
+                self.spec.dram = d.value;
                 Out::none()
             }
             Msg::Frontend(f) => {
@@ -229,6 +242,35 @@ impl State {
                 self.validation = Some(r);
                 return Out::none();
             }
+            Msg::Resolve => {
+                if self.spec.models.is_empty() {
+                    self.error = Some("choose at least one model".into());
+                    return Out::none();
+                }
+                let requests = self.baseline_requests(ctx);
+                let models: Vec<String> = self.spec.models.clone();
+                let spec = Box::new(self.spec.clone());
+                self.resolving = true;
+                self.resolved.clear();
+                self.resolved_open = None;
+                return Out::task(Task::perform(super::resolve_all(ctx.settings.clone(), requests), move |answers| {
+                    Msg::Resolved(spec.clone(), models.iter().cloned().zip(answers).collect())
+                }));
+            }
+            Msg::Resolved(spec, answers) => {
+                self.resolving = false;
+                if *spec == self.spec {
+                    self.resolved = answers;
+                }
+                return Out::none();
+            }
+            Msg::OpenResolved(i) => {
+                self.resolved_open = i;
+                return Out::none();
+            }
+            Msg::Copy(s) => {
+                return Out { task: iced::clipboard::write(s), toast: Some("copied".into()), ..Out::none() };
+            }
             Msg::Save => {
                 let spec = self.spec.clone();
                 Out::task(Task::perform(
@@ -299,8 +341,36 @@ impl State {
             // The preview is of the old space now.
             self.validation = None;
             self.error = None;
+            self.resolved.clear();
+            self.resolved_open = None;
         }
         out
+    }
+
+    /// One request per model for the baseline design, built as
+    /// sweep/run.py::resolve_cell_experiment builds the cell's, so the
+    /// fingerprint shown is the one the driver will record.
+    pub fn baseline_requests(&self, ctx: &Ctx) -> Vec<(String, ExperimentRequest)> {
+        let s = &self.spec;
+        s.models
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let app = ctx.ops.iter().find(|o| &o.arg == m).and_then(|o| o.app.as_deref());
+                let req = ExperimentRequest::new(m, &s.host, &s.dram).execution(
+                    app,
+                    s.frontend.as_deref(),
+                    s.serial,
+                    s.power,
+                );
+                (format!("work/gui/tmp/sweep-preview/{i}.request.json"), req)
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn resolved(&self) -> &[(String, Result<ResolvedExperiment, String>)] {
+        &self.resolved
     }
 
     fn launch(&self, ctx: &Ctx) -> Result<NewJob, String> {
@@ -357,18 +427,12 @@ impl State {
             Some("spatz") => FrontendChoice::Spatz,
             _ => FrontendChoice::Default,
         };
-        let host: &'static str = if s.host == "ara" { "ara" } else { "cva6" };
+        let hosts = host_choices(ctx.schema);
+        let memories = memory_choices(ctx.schema);
         let mut opts = column![
             labelled("Name", text_input("sweep", &s.name).on_input(Msg::Name).width(Length::Fixed(220.0))),
             labelled("", muted(format!("writes {}/", self.out_dir()))),
-            labelled(
-                "Host",
-                row![
-                    radio("CVA6", "cva6", Some(host), Msg::Host).size(16).text_size(13),
-                    radio("CVA6 + Ara", "ara", Some(host), Msg::Host).size(16).text_size(13),
-                ]
-                .spacing(16)
-            ),
+            labelled("Host", pick_list(hosts.clone(), Some(chosen(&hosts, &s.host)), Msg::Host).text_size(13)),
             labelled(
                 "Samples/run",
                 text_input("16", &s.images.to_string()).on_input(Msg::Images).width(Length::Fixed(90.0))
@@ -376,7 +440,7 @@ impl State {
             labelled("", checkbox(s.power).label("Measure energy (--power, slower)").on_toggle(Msg::Power)),
             labelled(
                 "Main memory",
-                pick_list(DramChoice::ALL, Some(DramChoice::from_arg(&s.dram)), Msg::Dram).text_size(13)
+                pick_list(memories.clone(), Some(chosen(&memories, &s.dram)), Msg::Dram).text_size(13)
             ),
         ]
         .spacing(8);
@@ -466,11 +530,44 @@ impl State {
             Some(Err(e)) => preview = preview.push(error(format!("check failed: {e}"))),
             None => {}
         }
+        for (i, (model, r)) in self.resolved.iter().enumerate() {
+            let open = self.resolved_open == Some(i);
+            preview = preview.push(match r {
+                Ok(r) => row![
+                    text(format!("baseline · {model}")).size(13).width(Length::Fixed(220.0)),
+                    mono(format!(
+                        "{} · {} · {}",
+                        r.memory.label,
+                        r.simulator.target,
+                        crate::experiment::short(&r.resolved_fingerprint)
+                    ))
+                    .width(Length::Fill),
+                    small_button(if open { "Hide" } else { "Details" }, Some(Msg::OpenResolved((!open).then_some(i)))),
+                ]
+                .spacing(8)
+                .align_y(iced::Center),
+                Err(e) => {
+                    row![text(format!("baseline · {model}")).size(13).width(Length::Fixed(220.0)), error(e.as_str())]
+                        .spacing(8)
+                }
+            });
+            if open && let Ok(r) = r {
+                preview = preview.push(
+                    container(resolved::summary(r, Some(Msg::Copy(r.raw.clone()))))
+                        .padding(8)
+                        .style(container::rounded_box),
+                );
+            }
+        }
         preview = preview.push(
             row![
                 small_button(
                     if self.validating { "Checking…" } else { "Check designs" },
                     (!self.validating).then_some(Msg::Validate)
+                ),
+                small_button(
+                    if self.resolving { "Resolving…" } else { "Resolve baseline" },
+                    (!self.resolving && !s.models.is_empty()).then_some(Msg::Resolve)
                 ),
                 small_button("Save spec…", Some(Msg::Save)),
                 small_button("Load spec…", Some(Msg::Load)),
@@ -541,8 +638,25 @@ impl State {
                 _ => text("").into(),
             };
             let kn = knob.clone();
+            let meta = ctx.schema.and_then(|sc| sc.param(knob));
+            let name: Element<'a, Msg> = match meta {
+                Some(m) => tooltip(
+                    mono(knob.as_str()),
+                    container(text(m.description.clone()).size(12)).padding(6).style(container::rounded_box),
+                    tooltip::Position::Top,
+                )
+                .into(),
+                None => mono(knob.as_str()).into(),
+            };
+            let label = meta
+                .map(|m| match &m.unit {
+                    Some(u) => format!("{} [{u}]", m.label),
+                    None => m.label.clone(),
+                })
+                .unwrap_or_default();
             row![
-                mono(knob.as_str()).width(Length::Fixed(170.0)),
+                container(name).width(Length::Fixed(170.0)),
+                muted(label).width(Length::Fixed(170.0)),
                 mono(fmt_knob_value(knob, base)).width(Length::Fixed(70.0)),
                 text_input("values, e.g. 2, 8", &typed)
                     .on_input(move |v| Msg::Values(kn.clone(), v))
@@ -564,6 +678,7 @@ impl State {
             .spacing(8),
             row![
                 muted("knob").width(Length::Fixed(170.0)),
+                muted("").width(Length::Fixed(170.0)),
                 muted("baseline").width(Length::Fixed(70.0)),
                 muted("values to try")
             ]

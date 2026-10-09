@@ -1,6 +1,7 @@
 //! The application: shared state, the job queue, and routing between tabs.
 
 use crate::backend;
+use crate::experiment::ExperimentSchema;
 use crate::jobs::{self, Channel, Job, JobEvent, JobKind, JobStatus};
 use crate::model::{Knobs, OpInfo, OpsList, SweepEvent};
 use crate::settings::Settings;
@@ -18,6 +19,7 @@ pub struct App {
     ops_loading: bool,
     ops_error: Option<String>,
     knobs: Option<Knobs>,
+    schema: Option<Result<ExperimentSchema, String>>,
     check: Vec<(String, Result<String, String>)>,
     checking: bool,
     jobs: Vec<Job>,
@@ -43,6 +45,7 @@ pub enum Message {
     Settings(ui::settings::Msg),
     OpsLoaded(Result<OpsList, String>),
     KnobsLoaded(Result<Knobs, String>),
+    SchemaLoaded(Result<ExperimentSchema, String>),
     Job(u64, JobEvent),
     Tick,
     Noop,
@@ -62,6 +65,7 @@ impl App {
             ops_loading: false,
             ops_error: None,
             knobs: None,
+            schema: None,
             check: Vec::new(),
             checking: false,
             jobs: Vec::new(),
@@ -95,7 +99,12 @@ impl App {
         if let Some(dir) = &cli.open_sweep {
             let (_, rel) = rel_to_ws(dir);
             app.results.select(&app.settings.workspace.clone(), rel);
-            let ctx = Ctx { settings: &app.settings, ops: &app.ops, knobs: app.knobs.as_ref() };
+            let ctx = Ctx {
+                settings: &app.settings,
+                ops: &app.ops,
+                knobs: app.knobs.as_ref(),
+                schema: app.schema.as_ref().and_then(|r| r.as_ref().ok()),
+            };
             tasks.push(app.results.analyse(&ctx).map(Message::Results));
             app.tab = Tab::Results;
         }
@@ -136,6 +145,10 @@ impl App {
         Task::batch([
             self.refresh_ops(),
             Task::perform(ui::query::<Knobs>(s.clone(), vec!["knobs".into()]), Message::KnobsLoaded),
+            Task::perform(
+                ui::query::<ExperimentSchema>(s.clone(), vec!["experiment-schema".into()]),
+                Message::SchemaLoaded,
+            ),
             Task::perform(backend::check(s), |r| Message::Settings(ui::settings::Msg::Checked(r))),
         ])
     }
@@ -146,7 +159,12 @@ impl App {
     }
 
     fn ctx(&self) -> Ctx<'_> {
-        Ctx { settings: &self.settings, ops: &self.ops, knobs: self.knobs.as_ref() }
+        Ctx {
+            settings: &self.settings,
+            ops: &self.ops,
+            knobs: self.knobs.as_ref(),
+            schema: self.schema.as_ref().and_then(|r| r.as_ref().ok()),
+        }
     }
 
     fn toast(&mut self, s: impl Into<String>) {
@@ -316,7 +334,12 @@ impl App {
                 self.sweep.set_per_cell(self.results.per_cell_estimate(&self.settings.workspace));
                 if self.results.current() == Some(out.as_str()) {
                     self.results.reload(&self.settings.workspace);
-                    let ctx = Ctx { settings: &self.settings, ops: &self.ops, knobs: self.knobs.as_ref() };
+                    let ctx = Ctx {
+                        settings: &self.settings,
+                        ops: &self.ops,
+                        knobs: self.knobs.as_ref(),
+                        schema: self.schema.as_ref().and_then(|r| r.as_ref().ok()),
+                    };
                     return self.results.analyse(&ctx).map(Message::Results);
                 }
                 Task::none()
@@ -335,26 +358,52 @@ impl App {
             }
             Message::Ops(m) => {
                 let out = {
-                    self.ops_tab
-                        .update(m, &Ctx { settings: &self.settings, ops: &self.ops, knobs: self.knobs.as_ref() })
+                    self.ops_tab.update(
+                        m,
+                        &Ctx {
+                            settings: &self.settings,
+                            ops: &self.ops,
+                            knobs: self.knobs.as_ref(),
+                            schema: self.schema.as_ref().and_then(|r| r.as_ref().ok()),
+                        },
+                    )
                 };
                 self.absorb(out, Message::Ops)
             }
             Message::Compare(m) => {
-                let out = self
-                    .compare
-                    .update(m, &Ctx { settings: &self.settings, ops: &self.ops, knobs: self.knobs.as_ref() });
+                let out = self.compare.update(
+                    m,
+                    &Ctx {
+                        settings: &self.settings,
+                        ops: &self.ops,
+                        knobs: self.knobs.as_ref(),
+                        schema: self.schema.as_ref().and_then(|r| r.as_ref().ok()),
+                    },
+                );
                 self.absorb(out, Message::Compare)
             }
             Message::Sweep(m) => {
-                let out =
-                    self.sweep.update(m, &Ctx { settings: &self.settings, ops: &self.ops, knobs: self.knobs.as_ref() });
+                let out = self.sweep.update(
+                    m,
+                    &Ctx {
+                        settings: &self.settings,
+                        ops: &self.ops,
+                        knobs: self.knobs.as_ref(),
+                        schema: self.schema.as_ref().and_then(|r| r.as_ref().ok()),
+                    },
+                );
                 self.absorb(out, Message::Sweep)
             }
             Message::Results(m) => {
-                let out = self
-                    .results
-                    .update(m, &Ctx { settings: &self.settings, ops: &self.ops, knobs: self.knobs.as_ref() });
+                let out = self.results.update(
+                    m,
+                    &Ctx {
+                        settings: &self.settings,
+                        ops: &self.ops,
+                        knobs: self.knobs.as_ref(),
+                        schema: self.schema.as_ref().and_then(|r| r.as_ref().ok()),
+                    },
+                );
                 self.absorb(out, Message::Results)
             }
             Message::Jobs(m) => self.jobs_update(m),
@@ -375,6 +424,10 @@ impl App {
                     Ok(k) => self.knobs = Some(k),
                     Err(e) => self.toast(format!("could not read the knob list: {e}")),
                 }
+                Task::none()
+            }
+            Message::SchemaLoaded(r) => {
+                self.schema = Some(r);
                 Task::none()
             }
             Message::Job(id, e) => self.on_job_event(id, e),
@@ -477,6 +530,7 @@ impl App {
                     self.toast(format!("settings not saved: {e}"));
                 }
                 self.knobs = None;
+                self.schema = None;
                 return Task::batch([self.reload_all(), self.pump()]);
             }
             Msg::Check => {
@@ -528,7 +582,11 @@ impl App {
         let problem = self
             .check
             .iter()
-            .find_map(|(what, r)| r.as_ref().err().map(|e| format!("{what}: {}", e.lines().next().unwrap_or(""))));
+            .find_map(|(what, r)| r.as_ref().err().map(|e| format!("{what}: {}", e.lines().next().unwrap_or(""))))
+            .or_else(|| match &self.schema {
+                Some(Err(e)) => Some(schema_problem(&self.settings, e)),
+                _ => None,
+            });
         let status_line =
             row![text(self.toast.as_ref().map(|(t, _)| t.clone()).unwrap_or_default()).size(13).width(Length::Fill),]
                 .push(problem.map(ui::common::warn))
@@ -541,6 +599,18 @@ impl App {
         )
         .padding(12)
         .into()
+    }
+}
+
+/// Why the memory, host and pin choices are cut down to the defaults.
+fn schema_problem(settings: &crate::settings::Settings, e: &str) -> String {
+    if crate::experiment::bridge_too_old(e) && settings.backend == crate::settings::BackendKind::Docker {
+        format!(
+            "\"{}\" predates experiment-schema: only default memory/host offered. Rebuild it or mount sources in Settings.",
+            settings.docker_image
+        )
+    } else {
+        format!("experiment-schema: {}", e.lines().next().unwrap_or(""))
     }
 }
 
@@ -597,7 +667,12 @@ mod tests {
         let image = std::env::var("HETERO_GUI_TEST_IMAGE").unwrap_or_else(|_| "hetero-sim:gui".into());
         std::fs::write(
             &cfg,
-            format!("backend = \"Docker\"\nworkspace = {:?}\ndocker_image = {image:?}\n", ws.to_string_lossy()),
+            // Mount the checkout's pipeline/, runtime/ and targets/: these test
+            // this checkout's bridge, not whatever the image was built with.
+            format!(
+                "backend = \"Docker\"\nworkspace = {:?}\ndocker_image = {image:?}\nmount_sources = true\n",
+                ws.to_string_lossy()
+            ),
         )
         .unwrap();
         let _ = crate::settings::CONFIG_OVERRIDE.set(cfg);
@@ -609,8 +684,19 @@ mod tests {
         let _ = app.update(Message::OpsLoaded(ops));
         let knobs = ui::query::<Knobs>(app.settings.clone(), vec!["knobs".into()]).await;
         let _ = app.update(Message::KnobsLoaded(knobs));
+        let schema = ui::query::<ExperimentSchema>(app.settings.clone(), vec!["experiment-schema".into()]).await;
+        let _ = app.update(Message::SchemaLoaded(schema));
         assert!(app.ops.iter().any(|o| o.arg == "ops/mnist"));
         assert!(app.knobs.is_some());
+        assert!(matches!(&app.schema, Some(Ok(s)) if !s.main_memories.is_empty()), "{:?}", app.schema);
+    }
+
+    /// What the iced runtime would do with Compare's Run task: resolve the
+    /// pending requests and hand the answers back.
+    async fn resolve_compare(app: &mut App) {
+        let outcomes = ui::resolve_all(app.settings.clone(), app.compare.pending_requests()).await;
+        let generation = app.compare.generation();
+        let _ = app.update(Message::Compare(compare::Msg::Resolved { launch: true, generation, outcomes }));
     }
 
     /// Run every job the app has started, feeding its events back in, until
@@ -639,9 +725,14 @@ mod tests {
         drain(&mut app).await;
 
         let _ = app.update(Message::Compare(compare::Msg::Mode(compare::Mode::Hetero)));
-        let _ = app.update(Message::Compare(compare::Msg::TogglePlacement("spatz", true)));
+        let _ = app.update(Message::Compare(compare::Msg::TogglePlacement("spatz".into(), true)));
         let _ = app.update(Message::Compare(compare::Msg::Run));
+        assert_eq!(app.jobs.len(), 1, "SoC jobs wait for their requests to resolve");
+        resolve_compare(&mut app).await;
         assert_eq!(app.jobs.len(), 3, "one isolated job, then mapped + pinned");
+        let previews = app.compare.previews();
+        assert!(previews.iter().all(|(_, r)| r.is_ok()), "{previews:?}");
+        assert_eq!(previews[1].1.as_ref().unwrap().mapping.pin.as_deref(), Some("spatz"));
         drain(&mut app).await;
 
         for j in &app.jobs {
@@ -661,6 +752,33 @@ mod tests {
             })
             .collect();
         assert_eq!(variants, ["cva6 host, mapped", "cva6 host, pinned spatz"]);
+        for l in &loaded[1..] {
+            let RunResult::Hetero(h) = &l.result else { unreachable!() };
+            assert!(l.resolved.is_some(), "{}: no resolved sidecar", l.source);
+            assert!(crate::ui::evidence::has_evidence(&h.mapping, &h.result.nodes), "{}", l.source);
+            assert!(h.mapping.nodes.iter().all(|n| n.mapping_explanation.is_some()));
+            assert!(h.result.nodes.iter().all(|n| n.implementation.is_some()));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn compare_tab_refuses_what_the_backend_cannot_resolve() {
+        let mut app = app();
+        load_shared(&mut app).await;
+        for m in [
+            compare::Msg::Mode(compare::Mode::Hetero),
+            compare::Msg::ToggleOp("ops/mymatmul".into(), true),
+            compare::Msg::Dram(crate::ui::common::Choice { value: "ddr42".into(), label: "ddr42".into() }),
+            compare::Msg::Run,
+        ] {
+            let _ = app.update(Message::Compare(m));
+        }
+        resolve_compare(&mut app).await;
+        assert!(app.jobs.is_empty(), "nothing queued");
+        let previews = app.compare.previews();
+        let err = previews[0].1.as_ref().unwrap_err();
+        assert!(err.contains("unknown main memory"), "{err}");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -710,5 +828,28 @@ mod tests {
         // the sensitivity points; (2, 5) moves both and is not.
         let knobs: Vec<&str> = rep.sensitivity[0].knobs.iter().map(|k| k.knob.as_str()).collect();
         assert_eq!(knobs.len(), 2, "{knobs:?}");
+
+        // Every cell has a manifest; the baseline's opens in Results.
+        let rows = crate::model::parse_jsonl(
+            &std::fs::read_to_string(app.settings.workspace.join(&out).join("sweep.jsonl")).unwrap(),
+        );
+        assert!(rows.iter().all(|r| r.manifest.is_some()), "{rows:?}");
+        let base = rows.iter().find(|r| r.design_slug == "baseline").unwrap();
+        let _ = app.update(Message::Results(results::Msg::Inspect(base.manifest.clone())));
+        let manifest = app.results.inspected().unwrap().as_ref().expect("manifest parses").clone();
+        assert_eq!(Some(&manifest.run_fingerprint), base.run_fingerprint.as_ref());
+
+        // The Sweep tab's baseline preview is the experiment the driver resolved.
+        let requests = app.sweep.baseline_requests(&app.ctx());
+        let answers = ui::resolve_all(app.settings.clone(), requests).await;
+        let spec = Box::new(app.sweep.spec.clone());
+        let models = app.sweep.spec.models.clone();
+        let _ = app.update(Message::Sweep(sweep::Msg::Resolved(spec, models.into_iter().zip(answers).collect())));
+        let (_, preview) = &app.sweep.resolved()[0];
+        assert_eq!(
+            preview.as_ref().unwrap().resolved_fingerprint,
+            manifest.resolved.experiment.resolved_fingerprint,
+            "the GUI's request must be the driver's"
+        );
     }
 }

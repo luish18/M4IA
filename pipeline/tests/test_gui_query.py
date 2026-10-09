@@ -110,6 +110,66 @@ class GuiQueryIntegrationTests(unittest.TestCase):
         ):
             self.assertIn(key, schema)
 
+    def test_experiment_schema_rows_carry_the_fields_the_gui_reads(self):
+        # gui/src/experiment.rs deserializes exactly these; keep them stable.
+        schema = gui_query.cmd_experiment_schema(None)
+        expected = {
+            "main_memories": {"name", "label", "model", "supports_overrides"},
+            "host_profiles": {"name", "label", "vector", "target"},
+            "engines": {"name", "label", "kind"},
+            "parameters": {
+                "name", "label", "group", "unit", "description", "default",
+                "build_time", "screening_values",
+            },
+            "mapping_strategies": {"id"},
+        }
+        for key, fields in expected.items():
+            with self.subTest(key=key):
+                self.assertTrue(schema[key])
+                for row in schema[key]:
+                    self.assertLessEqual(fields, set(row))
+        self.assertEqual(
+            [row["name"] for row in schema["host_profiles"]], ["ara", "cva6"],
+        )
+        self.assertEqual(
+            [row["name"] for row in schema["engines"]], ["cva6", "snitch", "spatz"],
+        )
+
+    def test_resolved_experiment_carries_the_fields_the_gui_reads(self):
+        resolved = self.resolve_request({
+            "workload": "synthetic/network.onnx", "dram": "lpddr5", "pin": "spatz",
+        })
+        self.assertTrue(resolved["resolved_fingerprint"].startswith("sha256:"))
+        self.assertLessEqual(
+            {"design_slug", "build_key", "fingerprint"}, set(resolved["hardware"]),
+        )
+        self.assertLessEqual(
+            {"kind", "label", "model", "fingerprint"}, set(resolved["memory"]),
+        )
+        resources = resolved["resources"]
+        self.assertIn("total_modeled_cores", resources["platform"])
+        for cluster in ("snitch", "spatz"):
+            self.assertLessEqual(
+                {"modeled_cores", "compute_cores"},
+                set(resources["clusters"][cluster]),
+            )
+        self.assertIn(
+            "useful_vector_lanes", resources["clusters"]["spatz"]["spatz_vector"],
+        )
+        self.assertLessEqual(
+            {"path", "application", "workload_fingerprint", "node_count", "op_counts"},
+            set(resolved["workload"]),
+        )
+        self.assertLessEqual(
+            {"strategy", "pin", "pin_semantics"}, set(resolved["mapping"]),
+        )
+        self.assertEqual(resolved["mapping"]["pin"], "spatz")
+        self.assertEqual(resolved["host_profile"], "cva6")
+        self.assertIn("target", resolved["simulator"])
+        self.assertEqual(
+            set(resolved["execution"]), {"frontend", "serial", "power"},
+        )
+
     def test_omitted_and_explicit_fixed_resolve_identically(self):
         workload = {"workload": "synthetic/network.onnx"}
         omitted = self.resolve_request(workload)

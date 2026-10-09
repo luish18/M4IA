@@ -1,0 +1,186 @@
+{
+    "op": "mymatmul",
+    "mapping": {
+        "pin": null,
+        "host": "cva6",
+        "nodes": [
+            {
+                "index": 0,
+                "node": "",
+                "op": "MatMul",
+                "engine": "spatz",
+                "kernel_arguments": {
+                    "M": 32,
+                    "N": 32,
+                    "O": 32
+                },
+                "mapping_explanation": {
+                    "strategy": "measured_rate_greedy",
+                    "node": "",
+                    "operator": "MatMul",
+                    "requested_pin": null,
+                    "pin_semantics": "compatible_node_preference_not_whole_graph",
+                    "engines": [
+                        {
+                            "engine": "snitch",
+                            "compatible": true,
+                            "candidate_before_pin": true,
+                            "candidate_after_pin": true,
+                            "incompatibility_reason": null,
+                            "exclusion_reason": null,
+                            "pin_influence": "not_requested",
+                            "cost": {
+                                "evaluated": true,
+                                "macs": 32768,
+                                "rate_macs_per_cycle": 5.038905120713517,
+                                "rate_key": "MatMul",
+                                "rate_kind": "operator_rate",
+                                "rate_row": {
+                                    "kind": "engine",
+                                    "key": "snitch"
+                                },
+                                "rate_table": {
+                                    "kind": "external_rate_table",
+                                    "path": "/workspace/work/fixture-sweep/out/designs/baseline__cva6__fixed-c0be3a9fbfe5/rates.json"
+                                },
+                                "fixed_offload_cycles": 961,
+                                "working_set_bytes": 12288,
+                                "per_byte_offload_cycles": 0.3113746537396122,
+                                "transfer_offload_cycles": 3826.1717451523546,
+                                "total_estimated_cycles": 11290.171745152355
+                            },
+                            "cost_used_for_selection": false
+                        },
+                        {
+                            "engine": "spatz",
+                            "compatible": true,
+                            "candidate_before_pin": true,
+                            "candidate_after_pin": true,
+                            "incompatibility_reason": null,
+                            "exclusion_reason": null,
+                            "pin_influence": "not_requested",
+                            "cost": {
+                                "evaluated": true,
+                                "macs": 32768,
+                                "rate_macs_per_cycle": 24.236686390532544,
+                                "rate_key": "MatMul",
+                                "rate_kind": "operator_rate",
+                                "rate_row": {
+                                    "kind": "engine",
+                                    "key": "spatz"
+                                },
+                                "rate_table": {
+                                    "kind": "external_rate_table",
+                                    "path": "/workspace/work/fixture-sweep/out/designs/baseline__cva6__fixed-c0be3a9fbfe5/rates.json"
+                                },
+                                "fixed_offload_cycles": 806,
+                                "working_set_bytes": 12288,
+                                "per_byte_offload_cycles": 0.2915512465373961,
+                                "transfer_offload_cycles": 3582.581717451523,
+                                "total_estimated_cycles": 5740.581717451523
+                            },
+                            "cost_used_for_selection": true
+                        },
+                        {
+                            "engine": "cva6",
+                            "compatible": true,
+                            "candidate_before_pin": true,
+                            "candidate_after_pin": true,
+                            "incompatibility_reason": null,
+                            "exclusion_reason": null,
+                            "pin_influence": "not_requested",
+                            "cost": {
+                                "evaluated": true,
+                                "macs": 32768,
+                                "rate_macs_per_cycle": 0.06952684065351156,
+                                "rate_key": "MatMul",
+                                "rate_kind": "operator_rate",
+                                "rate_row": {
+                                    "kind": "host_profile",
+                                    "key": "cva6"
+                                },
+                                "rate_table": {
+                                    "kind": "external_rate_table",
+                                    "path": "/workspace/work/fixture-sweep/out/designs/baseline__cva6__fixed-c0be3a9fbfe5/rates.json"
+                                },
+                                "fixed_offload_cycles": 0,
+                                "working_set_bytes": null,
+                                "per_byte_offload_cycles": null,
+                                "transfer_offload_cycles": null,
+                                "total_estimated_cycles": 471300.00000000006
+                            },
+                            "cost_used_for_selection": false
+                        }
+                    ],
+                    "selected_engine": "spatz",
+                    "selected_estimated_cost_cycles": 5740.581717451523,
+                    "selection_rule": "minimum_safe_estimated_cost"
+                }
+            }
+        ],
+        "dram": "fixed"
+    },
+    "result": {
+        "status": "ok",
+        "wall_s": 1.5,
+        "nodes": [
+            {
+                "node": 0,
+                "op": "MatMul",
+                "engine": "spatz",
+                "cycles": 6694,
+                "implementation": {
+                    "implementation_id": "spatz.fp32.matmul_gemm.rvv_tuned",
+                    "fallback_used": false,
+                    "fallback_from": null,
+                    "fallback_to": null,
+                    "fallback_reason": null,
+                    "implementation_detail": null,
+                    "evidence": {
+                        "type": "deterministic_compiled_dispatch_and_runtime_evidence",
+                        "sources": [
+                            "completed_runtime_beacon",
+                            "generated_dispatch_arguments",
+                            "audited_compiled_dispatch_rules"
+                        ]
+                    }
+                }
+            }
+        ],
+        "per_engine_cycles": {
+            "spatz": 6694
+        },
+        "waits": [],
+        "cycles": 8183,
+        "errors": 0,
+        "outputs": 1024,
+        "maxdiff": 0.0,
+        "offload_failures": 0,
+        "caches": [
+            {
+                "cache": "icache",
+                "accesses": 4584,
+                "misses": 62,
+                "latency_cycles": 6998,
+                "dynamic_pj": 0.0,
+                "leakage_pj": 0.0
+            },
+            {
+                "cache": "dcache",
+                "accesses": 3405,
+                "misses": 825,
+                "latency_cycles": 63459,
+                "dynamic_pj": 0.0,
+                "leakage_pj": 0.0
+            },
+            {
+                "cache": "l2",
+                "accesses": 1002,
+                "misses": 342,
+                "latency_cycles": 50919,
+                "dynamic_pj": 0.0,
+                "leakage_pj": 0.0
+            }
+        ]
+    }
+}

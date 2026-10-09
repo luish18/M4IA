@@ -12,6 +12,7 @@ mod app;
 mod backend;
 #[cfg(test)]
 mod e2e;
+mod experiment;
 mod jobs;
 mod model;
 mod settings;
