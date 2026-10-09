@@ -149,6 +149,36 @@ class RunManifestTests(unittest.TestCase):
         )
         self.assertNotIn("k9r5", json.dumps(manifest).lower())
 
+    def test_manifest_carries_the_fields_the_gui_reads(self):
+        # gui/src/model.rs::RunManifest deserializes these; keep them stable.
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest, *_ = self.build(Path(tmp))
+        self.assertLessEqual(
+            {
+                "kind", "artifact_key", "run_input_fingerprint", "run_fingerprint",
+                "requested", "resolved", "generated", "actual", "measured",
+                "calibration", "run_provenance", "artifacts",
+            },
+            set(manifest),
+        )
+        self.assertLessEqual(
+            {"experiment", "machine", "execution"}, set(manifest["resolved"]),
+        )
+        self.assertLessEqual(
+            {"machine_key", "machine_fingerprint"},
+            set(manifest["resolved"]["machine"]),
+        )
+        self.assertLessEqual(
+            {"path", "input_fingerprint", "metadata_digest"},
+            set(manifest["calibration"]),
+        )
+        self.assertLessEqual(
+            {"path", "digest"}, set(manifest["artifacts"]["result"]),
+        )
+        self.assertIn("digest", manifest["run_provenance"]["source_set"])
+        self.assertIsInstance(manifest["actual"]["nodes"], list)
+        self.assertIsInstance(manifest["generated"]["nodes"], list)
+
     def test_actual_is_completed_only_and_contains_no_measurement(self):
         with tempfile.TemporaryDirectory() as tmp:
             manifest, *_ = self.build(Path(tmp))
