@@ -4,13 +4,16 @@
 
 pub mod common;
 pub mod compare;
+pub mod evidence;
 pub mod jobs;
 pub mod ops;
+pub mod resolved;
 pub mod results;
 pub mod settings;
 pub mod sweep;
 
 use crate::backend::{self, Invocation};
+use crate::experiment::{ExperimentRequest, ExperimentSchema, ResolvedExperiment};
 use crate::jobs::JobKind;
 use crate::model::{Knobs, OpInfo};
 use crate::settings::Settings;
@@ -58,8 +61,11 @@ pub struct Ctx<'a> {
     pub settings: &'a Settings,
     pub ops: &'a [OpInfo],
     pub knobs: Option<&'a Knobs>,
+    /// experiment-schema's answer, once it has come and if it parsed.
+    pub schema: Option<&'a ExperimentSchema>,
 }
 
+#[derive(Debug, Clone)]
 pub struct NewJob {
     pub title: String,
     pub kind: JobKind,
@@ -96,6 +102,32 @@ impl<M> Out<M> {
 pub async fn query<T: DeserializeOwned>(settings: Settings, args: Vec<String>) -> Result<T, String> {
     let out = backend::capture(settings, Invocation::new("pipeline/gui_query.py").args(args)).await?;
     serde_json::from_str(out.trim()).map_err(|e| format!("unexpected answer from gui_query: {e}"))
+}
+
+/// Write `request` to `rel` (workspace-relative, so the container sees it
+/// too) and have the backend resolve it. Builds and runs nothing.
+pub async fn resolve(
+    settings: Settings,
+    rel: String,
+    request: ExperimentRequest,
+) -> Result<ResolvedExperiment, String> {
+    let path = settings.workspace.join(&rel);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let json = serde_json::to_string_pretty(&request).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("{}: {e}", path.display()))?;
+    let out =
+        backend::capture(settings, Invocation::new("pipeline/gui_query.py").arg("resolve-experiment").arg(rel)).await?;
+    ResolvedExperiment::parse(out.trim())
+}
+
+/// Resolve several requests at once, answers in the same order.
+pub async fn resolve_all(
+    settings: Settings,
+    requests: Vec<(String, ExperimentRequest)>,
+) -> Vec<Result<ResolvedExperiment, String>> {
+    iced::futures::future::join_all(requests.into_iter().map(|(rel, req)| resolve(settings.clone(), rel, req))).await
 }
 
 /// Seconds since the epoch, as a sortable id for output directories.

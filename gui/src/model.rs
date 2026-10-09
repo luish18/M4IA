@@ -139,11 +139,56 @@ impl IsolatedResult {
 
 // --- run_hetero.py -----------------------------------------------------------
 
+/// One node as code generation placed it: the GENERATED layer.
 #[derive(Debug, Clone, Deserialize)]
 pub struct NodeMap {
     pub node: String,
     pub op: String,
     pub engine: String,
+    /// The index the runtime's completion beacons report; absent before the
+    /// Experimental Foundation.
+    pub index: Option<i64>,
+    /// MatMul/Gemm constants that survived Deeploy binding.
+    pub kernel_arguments: Option<Map<String, Value>>,
+    pub mapping_explanation: Option<MappingExplanation>,
+}
+
+/// The mapper's account of one decision. Descriptive only: it explains the
+/// placement, it did not make it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct MappingExplanation {
+    /// "unavailable" when no explanation could be tied to the generated node.
+    pub status: Option<String>,
+    pub reason: Option<String>,
+    pub selected_engine: Option<String>,
+    pub selected_estimated_cost_cycles: Option<f64>,
+    pub selection_rule: Option<String>,
+    pub requested_pin: Option<String>,
+    pub engines: Vec<EngineExplanation>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct EngineExplanation {
+    pub engine: String,
+    pub compatible: bool,
+    pub candidate_after_pin: bool,
+    pub exclusion_reason: Option<String>,
+    pub pin_influence: Option<String>,
+    pub cost_used_for_selection: bool,
+    /// `evaluated` plus either `total_estimated_cycles` or a `reason`.
+    pub cost: Value,
+}
+
+impl EngineExplanation {
+    pub fn estimated_cycles(&self) -> Option<f64> {
+        self.cost.get("total_estimated_cycles").and_then(Value::as_f64)
+    }
+
+    pub fn cost_unavailable_reason(&self) -> Option<&str> {
+        self.cost.get("reason").and_then(Value::as_str)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,6 +201,38 @@ pub struct Mapping {
     pub frontend: Option<String>,
     #[serde(default)]
     pub serial: bool,
+    /// Effective main memory; recorded even when fixed since the Foundation.
+    pub dram: Option<String>,
+}
+
+/// A node the runtime reported complete. `cycles` is MEASURED;
+/// `implementation`, when present, is the ACTUAL layer.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuntimeNode {
+    pub node: i64,
+    #[serde(default)]
+    pub op: String,
+    pub cycles: Option<u64>,
+    pub implementation: Option<Implementation>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Implementation {
+    pub implementation_id: Option<String>,
+    pub fallback_used: Option<bool>,
+    pub fallback_reason: Option<String>,
+    pub evidence: Value,
+}
+
+impl Implementation {
+    /// Why the implementation is unknown, when it is.
+    pub fn unknown_reason(&self) -> Option<&str> {
+        if self.implementation_id.is_some() {
+            return None;
+        }
+        Some(self.evidence.get("reason").and_then(Value::as_str).unwrap_or("no evidence"))
+    }
 }
 
 fn default_host() -> String {
@@ -178,6 +255,9 @@ pub struct HeteroRun {
     pub caches: Vec<Cache>,
     #[serde(default)]
     pub log_tail: Vec<String>,
+    /// Completed nodes, in completion order.
+    #[serde(default)]
+    pub nodes: Vec<RuntimeNode>,
 }
 
 impl HeteroRun {
@@ -206,6 +286,9 @@ impl HeteroResult {
         );
         if let Some(fe) = &self.mapping.frontend {
             s += &format!(", fe {fe}");
+        }
+        if let Some(d) = self.mapping.dram.as_deref().filter(|d| *d != "fixed") {
+            s += &format!(", {d}");
         }
         if self.mapping.serial {
             s += ", serial";
@@ -254,6 +337,16 @@ pub struct SweepRow {
     pub wall_s: Option<f64>,
     pub area_au: Option<f64>,
     pub cache_dynamic_pj: Option<f64>,
+    // Experimental Foundation identity; absent in older sweeps.
+    pub dram_kind: Option<String>,
+    pub machine_key: Option<String>,
+    pub artifact_key: Option<String>,
+    pub run_input_fingerprint: Option<String>,
+    pub run_fingerprint: Option<String>,
+    /// The cell's `m4ia.run` manifest, relative to the sweep directory.
+    pub manifest: Option<String>,
+    pub calibration_cache: Option<String>,
+    pub effective_frontend: Option<String>,
 }
 
 impl SweepRow {
@@ -285,6 +378,94 @@ pub enum SweepEvent {
     Phase { phase: String },
     Row { done: usize, total: usize, eta_s: Option<f64>, row: Box<SweepRow> },
     Done { done: usize, total: usize },
+}
+
+// --- m4ia.run manifests -----------------------------------------------------
+
+/// A sweep cell's manifest. The five layers stay separate on purpose:
+/// requested intent, the resolved configuration, what code generation
+/// emitted, what completed nodes prove ran, and what was measured.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunManifest {
+    pub kind: String,
+    pub artifact_key: String,
+    pub run_input_fingerprint: String,
+    pub run_fingerprint: String,
+    #[serde(default)]
+    pub requested: Map<String, Value>,
+    pub resolved: ManifestResolved,
+    pub generated: Mapping,
+    pub actual: ManifestActual,
+    pub measured: HeteroRun,
+    pub calibration: ManifestCalibration,
+    #[serde(default)]
+    pub artifacts: ManifestArtifacts,
+    #[serde(default)]
+    pub run_provenance: RunProvenance,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManifestResolved {
+    pub experiment: crate::experiment::ResolvedExperiment,
+    pub machine: ManifestMachine,
+    #[serde(default)]
+    pub execution: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ManifestMachine {
+    pub machine_key: String,
+    pub machine_fingerprint: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ManifestActual {
+    pub nodes: Vec<RuntimeNode>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ManifestCalibration {
+    pub path: String,
+    pub input_fingerprint: String,
+    pub metadata_digest: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ManifestArtifacts {
+    pub result: ArtifactLink,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ArtifactLink {
+    pub path: String,
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RunProvenance {
+    pub source_set: SourceSet,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct SourceSet {
+    pub digest: String,
+}
+
+impl RunManifest {
+    pub fn parse(text: &str) -> Result<RunManifest, String> {
+        let m: RunManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        if m.kind != "m4ia.run" {
+            return Err(format!("not a run manifest (kind {:?})", m.kind));
+        }
+        Ok(m)
+    }
 }
 
 // --- report.py --json --------------------------------------------------------
@@ -433,6 +614,53 @@ mod tests {
         );
         let e: SweepEvent = serde_json::from_str(&line).unwrap();
         assert!(matches!(e, SweepEvent::Row { done: 1, .. }));
+    }
+
+    #[test]
+    fn parses_foundation_evidence_in_a_hetero_result() {
+        let RunResult::Hetero(r) = RunResult::parse(include_str!("../tests/fixtures/hetero-evidence.json")).unwrap()
+        else {
+            panic!("wrong kind")
+        };
+        let n = &r.mapping.nodes[0];
+        assert_eq!((n.index, n.engine.as_str()), (Some(0), "spatz"));
+        assert_eq!(n.kernel_arguments.as_ref().unwrap()["O"], 32);
+        let x = n.mapping_explanation.as_ref().unwrap();
+        assert_eq!(x.selection_rule.as_deref(), Some("minimum_safe_estimated_cost"));
+        assert_eq!(x.selected_engine.as_deref(), Some("spatz"));
+        let spatz = x.engines.iter().find(|e| e.engine == "spatz").unwrap();
+        assert!(spatz.cost_used_for_selection && spatz.estimated_cycles().is_some());
+        assert_eq!(r.mapping.dram.as_deref(), Some("fixed"));
+        let done = &r.result.nodes[0];
+        assert_eq!(done.cycles, Some(6694));
+        let imp = done.implementation.as_ref().unwrap();
+        assert_eq!(imp.implementation_id.as_deref(), Some("spatz.fp32.matmul_gemm.rvv_tuned"));
+        assert_eq!((imp.fallback_used, imp.unknown_reason()), (Some(false), None));
+    }
+
+    #[test]
+    fn parses_a_sweep_cell_manifest_and_its_row() {
+        let m = RunManifest::parse(include_str!("../tests/fixtures/manifest.json")).unwrap();
+        assert_eq!(m.artifact_key, "baseline__mymatmul-70ab58e75c4b");
+        assert_eq!(m.resolved.machine.machine_key, "baseline__cva6__fixed-c0be3a9fbfe5");
+        assert_eq!(m.resolved.experiment.memory.kind, "fixed");
+        assert_eq!(m.generated.nodes.len(), 1);
+        assert!(m.actual.nodes[0].implementation.is_some());
+        assert!(m.actual.nodes[0].cycles.is_none(), "actual carries no measurement");
+        assert_eq!(m.measured.nodes[0].cycles, Some(6694));
+        assert!(m.measured.nodes[0].implementation.is_none(), "measured carries no implementation");
+        assert!(m.calibration.input_fingerprint.starts_with("sha256:"));
+        assert!(m.artifacts.result.path.ends_with("result.json"));
+        assert!(m.run_provenance.source_set.digest.starts_with("sha256:"));
+        assert!(RunManifest::parse(r#"{"kind": "other"}"#).is_err());
+
+        let rows = parse_jsonl(include_str!("../tests/fixtures/sweep-foundation.jsonl"));
+        let row = &rows[0];
+        assert_eq!(row.manifest.as_deref(), Some("cells/baseline__mymatmul-70ab58e75c4b/manifest.json"));
+        assert_eq!(row.dram_kind.as_deref(), Some("fixed"));
+        assert_eq!(row.run_fingerprint.as_deref(), Some(m.run_fingerprint.as_str()));
+        // Older rows have none of it.
+        assert!(parse_jsonl(include_str!("../tests/fixtures/sweep.jsonl"))[0].manifest.is_none());
     }
 
     #[test]

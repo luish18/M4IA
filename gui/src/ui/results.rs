@@ -2,8 +2,9 @@
 //! and Pareto analysis, and CSV export.
 
 use super::common::*;
-use super::{Ctx, Out};
-use crate::model::{Report, SweepRow, fmt_cycles, fmt_knob_value, parse_jsonl};
+use super::{Ctx, Out, evidence, resolved};
+use crate::experiment::short;
+use crate::model::{Report, RunManifest, SweepRow, fmt_cycles, fmt_knob_value, parse_jsonl};
 use crate::widgets::charts::{Bar, BarChart, Point2, Scatter};
 use iced::widget::{column, container, pick_list, progress_bar, row, scrollable, table, text};
 use iced::{Element, Length, Task};
@@ -31,6 +32,10 @@ pub struct State {
     sort: Sort,
     pub live: Option<(String, Live)>,
     error: Option<String>,
+    /// The cell whose manifest is open: its path in the sweep, and what was read.
+    inspect: Option<(String, Result<RunManifest, String>)>,
+    /// The node of that manifest whose mapping explanation is open.
+    open_node: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -67,6 +72,9 @@ pub enum Msg {
     Sort(Sort),
     Export,
     Exported(Result<Option<PathBuf>, String>),
+    /// Open a cell's manifest (its path relative to the sweep), or close it.
+    Inspect(Option<String>),
+    OpenNode(Option<i64>),
 }
 
 const ALL_MODELS: &str = "all models";
@@ -106,6 +114,7 @@ impl State {
         if self.current.as_deref() != Some(dir.as_str()) {
             self.report = None;
             self.model = None;
+            self.inspect = None;
         }
         self.current = Some(dir);
         self.reload(ws);
@@ -120,6 +129,11 @@ impl State {
     #[cfg(test)]
     pub fn report(&self) -> Option<&Report> {
         self.report.as_ref().and_then(|r| r.as_ref().ok())
+    }
+
+    #[cfg(test)]
+    pub fn inspected(&self) -> Option<&Result<RunManifest, String>> {
+        self.inspect.as_ref().map(|(_, m)| m)
     }
 
     pub fn current(&self) -> Option<&str> {
@@ -235,6 +249,17 @@ impl State {
             Msg::Exported(Ok(Some(p))) => return Out::toast(format!("exported {}", p.display())),
             Msg::Exported(Ok(None)) => {}
             Msg::Exported(Err(e)) => self.error = Some(e),
+            Msg::Inspect(None) => self.inspect = None,
+            Msg::Inspect(Some(rel)) => {
+                let Some(dir) = &self.current else { return Out::none() };
+                let path = ws.join(dir).join(&rel);
+                let m = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("{}: {e}", path.display()))
+                    .and_then(|t| RunManifest::parse(&t).map_err(|e| format!("{rel}: {e}")));
+                self.inspect = Some((rel, m));
+                self.open_node = None;
+            }
+            Msg::OpenNode(n) => self.open_node = n,
         }
         Out::none()
     }
@@ -287,13 +312,17 @@ impl State {
 
     fn csv(&self) -> String {
         let knobs: Vec<String> = self.rows.first().map(|r| r.design.keys().cloned().collect()).unwrap_or_default();
-        let mut out = format!("design_slug,model,status,cycles,area_au,cache_dynamic_pj,wall_s,{}\n", knobs.join(","));
+        let mut out = format!(
+            "design_slug,model,status,cycles,area_au,cache_dynamic_pj,wall_s,dram_kind,artifact_key,run_fingerprint,{}\n",
+            knobs.join(",")
+        );
         for r in &self.rows {
             let opt = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
             let vals: Vec<String> =
                 knobs.iter().map(|k| r.design.get(k).map(|v| v.to_string()).unwrap_or_default()).collect();
+            let s = |v: &Option<String>| v.clone().unwrap_or_default();
             out += &format!(
-                "{},{},{},{},{},{},{},{}\n",
+                "{},{},{},{},{},{},{},{},{},{},{}\n",
                 r.design_slug,
                 r.model,
                 r.status,
@@ -301,6 +330,9 @@ impl State {
                 opt(r.area_au),
                 opt(r.cache_dynamic_pj),
                 opt(r.wall_s),
+                s(&r.dram_kind),
+                s(&r.artifact_key),
+                s(&r.run_fingerprint),
                 vals.join(",")
             );
         }
@@ -385,6 +417,12 @@ impl State {
             None => body = body.push(muted("Press Analyse for the sensitivity table and the Pareto front.")),
         }
         body = body.push(section("Cells", self.rows_table()));
+        if let Some((rel, m)) = &self.inspect {
+            body = body.push(match m {
+                Ok(m) => self.manifest_view(m),
+                Err(e) => section("Run evidence", column![error(e.as_str()), muted(rel.as_str())].spacing(4)),
+            });
+        }
         scrollable(body.padding(iced::Padding { right: 12.0, ..Default::default() })).into()
     }
 
@@ -488,6 +526,9 @@ impl State {
             area: String,
             energy: String,
             wall: String,
+            memory: String,
+            calib: String,
+            manifest: Option<String>,
             why: String,
         }
         let data: Vec<R> = rows
@@ -508,6 +549,9 @@ impl State {
                     area: r.area_au.map(|a| format!("{:.2}M", a / 1e6)).unwrap_or_else(|| "-".into()),
                     energy: r.cache_dynamic_pj.map(|p| format!("{:.2} µJ", p / 1e6)).unwrap_or_else(|| "-".into()),
                     wall: r.wall_s.map(|w| format!("{w:.0}s")).unwrap_or_default(),
+                    memory: r.dram_kind.clone().unwrap_or_default(),
+                    calib: r.calibration_cache.clone().unwrap_or_default().chars().take(24).collect(),
+                    manifest: r.manifest.clone(),
                     why: r.reasons.join("; ").chars().take(140).collect(),
                 }
             })
@@ -523,6 +567,11 @@ impl State {
                     table::column(text("area").size(12), |r: R| mono(r.area)).align_x(iced::Right),
                     table::column(text("cache energy").size(12), |r: R| mono(r.energy)).align_x(iced::Right),
                     table::column(text("wall").size(12), |r: R| mono(r.wall)).align_x(iced::Right),
+                    table::column(text("memory").size(12), |r: R| mono(r.memory)),
+                    table::column(text("calibration").size(12), |r: R| mono(r.calib)),
+                    table::column(text("evidence").size(12), |r: R| {
+                        small_button("details", r.manifest.map(|m| Msg::Inspect(Some(m))))
+                    }),
                     table::column(text("why not").size(12), |r: R| muted(r.why)).width(Length::Fill),
                 ],
                 data,
@@ -532,4 +581,74 @@ impl State {
         )
         .into()
     }
+
+    /// One cell's manifest, layer by layer, in the order the evidence arises.
+    fn manifest_view<'a>(&'a self, m: &'a RunManifest) -> Element<'a, Msg> {
+        let layer = |title: &'a str, hint: &'a str| {
+            row![text(title).size(14), muted(hint)].spacing(10).align_y(iced::Alignment::End)
+        };
+        let requested = m.requested.iter().map(|(k, v)| format!("{k} = {v}")).collect::<Vec<_>>().join("\n");
+        let r = &m.measured;
+        let mut measured = vec![format!("status {}", r.status)];
+        if let Some((c, unit)) = r.headline() {
+            measured.push(format!("{} {unit}", fmt_cycles(c)));
+        }
+        if !r.per_engine_cycles.is_empty() {
+            let e = r.per_engine_cycles.iter().map(|(k, v)| format!("{k} {}", fmt_cycles(*v))).collect::<Vec<_>>();
+            measured.push(format!("engines: {}", e.join(", ")));
+        }
+        if let Some(a) = r.accuracy {
+            measured.push(format!("accuracy {:.1}%", a * 100.0));
+        }
+        if let Some(d) = r.maxdiff {
+            measured.push(format!("max |err| {d:.2e}"));
+        }
+        if let Some(w) = r.wall_s {
+            measured.push(format!("wall {w:.0}s"));
+        }
+        let identity = [
+            ("artifact key", m.artifact_key.clone()),
+            (
+                "machine",
+                format!("{}  {}", m.resolved.machine.machine_key, short(&m.resolved.machine.machine_fingerprint)),
+            ),
+            ("run input", m.run_input_fingerprint.clone()),
+            ("completed run", m.run_fingerprint.clone()),
+            ("calibration", format!("{}  input {}", m.calibration.path, short(&m.calibration.input_fingerprint))),
+            ("calib. metadata", m.calibration.metadata_digest.clone()),
+            ("result", format!("{}  {}", m.artifacts.result.path, short(&m.artifacts.result.digest))),
+            ("run sources", m.run_provenance.source_set.digest.clone()),
+        ]
+        .into_iter()
+        .map(|(k, v)| row![text(k).size(12).width(Length::Fixed(110.0)), mono(v)].spacing(8).into());
+        let lines = evidence::join(&m.generated, &m.actual.nodes, &m.measured.nodes);
+
+        let body = column![
+            row![
+                muted(format!("cells/{}", m.artifact_key)).width(Length::Fill),
+                small_button("Close", Some(Msg::Inspect(None)))
+            ]
+            .align_y(iced::Center),
+            layer("Requested", "what the sweep asked for"),
+            mono(requested),
+            layer("Resolved", "the canonical experiment and machine it became"),
+            resolved::summary(&m.resolved.experiment, None),
+            mono(format!(
+                "effective: {}",
+                m.resolved.execution.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" ")
+            )),
+            layer("Generated · Actual · Measured", "per node: placement, what completed nodes prove ran, cycles"),
+            evidence::table(&lines, self.open_node, Msg::OpenNode),
+            layer("Measured", "observations of this run"),
+            mono(measured.join(" · ")),
+            layer("Identity", "fingerprints and linked artifacts"),
+            lines_of(identity),
+        ]
+        .spacing(6);
+        section("Run evidence", body)
+    }
+}
+
+fn lines_of<'a>(items: impl Iterator<Item = Element<'a, Msg>>) -> Element<'a, Msg> {
+    column(items).spacing(2).into()
 }

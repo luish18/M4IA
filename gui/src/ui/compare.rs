@@ -2,8 +2,9 @@
 //! the heterogeneous SoC (run_hetero.py), and put the numbers side by side.
 
 use super::common::*;
-use super::{Ctx, NewJob, Out, stamp};
+use super::{Ctx, NewJob, Out, evidence, resolved, stamp};
 use crate::backend::Invocation;
+use crate::experiment::{ExperimentRequest, ResolvedExperiment, bridge_too_old, short};
 use crate::jobs::JobKind;
 use crate::model::{HeteroResult, IsolatedResult, RunResult, fmt_cycles};
 use crate::widgets::charts::{Bar, BarChart};
@@ -13,10 +14,28 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 pub const CORES: [&str; 4] = ["cva6", "snitch", "spatz", "ara"];
-const PLACEMENTS: [&str; 4] = ["mapped", "cva6", "snitch", "spatz"];
+/// The UI's "no pin" placement; every other placement is an engine name.
+const MAPPED: &str = "mapped";
 
-fn with_explicit_dram(inv: Invocation, dram: DramChoice) -> Invocation {
-    inv.arg("--dram").arg(dram.arg())
+/// Fixed too: a native child inherits HES_DESIGN, so leaving `--dram` out
+/// could keep a memory from the environment instead of the one shown.
+fn with_explicit_dram(inv: Invocation, dram: &str) -> Invocation {
+    inv.arg("--dram").arg(dram)
+}
+
+/// `x/tag.json` -> `x/tag.<what>.json`: where a run's request and resolved
+/// experiment are kept, next to its result.
+fn sidecar(out: &str, what: &str) -> String {
+    format!("{}.{what}.json", out.strip_suffix(".json").unwrap_or(out))
+}
+
+/// A job and, for the SoC, the request it resolves from: (request file,
+/// resolved sidecar, request).
+#[derive(Debug, Clone)]
+struct Planned {
+    job: NewJob,
+    label: String,
+    request: Option<(String, String, ExperimentRequest)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +48,8 @@ pub enum Mode {
 pub struct Loaded {
     pub source: String,
     pub result: RunResult,
+    /// What the run was resolved to before launch, when the GUI launched it.
+    pub resolved: Option<ResolvedExperiment>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,11 +59,11 @@ pub struct State {
     selected: BTreeSet<String>,
     cores: BTreeSet<&'static str>,
     memory: &'static str,
-    dram: DramChoice,
+    dram: String,
     spatz_kernels: &'static str,
     timeout: String,
-    host: &'static str,
-    placements: BTreeSet<&'static str>,
+    host: String,
+    placements: BTreeSet<String>,
     power: bool,
     images: String,
     frontend: &'static str,
@@ -52,6 +73,19 @@ pub struct State {
     show_caches: bool,
     show_mapping: bool,
     error: Option<String>,
+    /// The resolved preview: one per SoC job, labelled.
+    previews: Vec<(String, Result<ResolvedExperiment, String>)>,
+    preview_open: Option<usize>,
+    resolving: bool,
+    /// Bumped by every control change, so a late answer about old settings
+    /// does not show as the preview of the new ones.
+    generation: u64,
+    /// Jobs waiting for their requests to resolve before they launch.
+    pending: Vec<Planned>,
+    /// The node whose mapping explanation is open: (result source, index).
+    open_node: Option<(String, i64)>,
+    /// Labels of the requests being resolved, in order.
+    preview_labels: Vec<String>,
 }
 
 impl Default for State {
@@ -62,11 +96,11 @@ impl Default for State {
             selected: BTreeSet::new(),
             cores: ["cva6", "snitch", "spatz"].into(),
             memory: "real",
-            dram: DramChoice::Fixed,
+            dram: "fixed".into(),
             spatz_kernels: "tuned",
             timeout: "600".into(),
-            host: "cva6",
-            placements: ["mapped"].into(),
+            host: "cva6".into(),
+            placements: [MAPPED.to_string()].into(),
             power: false,
             images: "16".into(),
             frontend: "snitch",
@@ -76,6 +110,13 @@ impl Default for State {
             show_caches: false,
             show_mapping: false,
             error: None,
+            previews: Vec::new(),
+            preview_open: None,
+            resolving: false,
+            generation: 0,
+            pending: Vec::new(),
+            open_node: None,
+            preview_labels: Vec::new(),
         }
     }
 }
@@ -87,16 +128,26 @@ pub enum Msg {
     ToggleOp(String, bool),
     ToggleCore(&'static str, bool),
     Memory(&'static str),
-    Dram(DramChoice),
+    Dram(Choice),
     SpatzKernels(&'static str),
     Timeout(String),
-    Host(&'static str),
-    TogglePlacement(&'static str, bool),
+    Host(Choice),
+    TogglePlacement(String, bool),
     Power(bool),
     Images(String),
     Frontend(&'static str),
     Serial(bool),
+    Preview,
     Run,
+    /// Answers to the jobs' requests, in job order; `launch` for Run.
+    Resolved {
+        launch: bool,
+        generation: u64,
+        outcomes: Vec<Result<ResolvedExperiment, String>>,
+    },
+    OpenPreview(Option<usize>),
+    OpenNode(Option<(String, i64)>),
+    Copy(String),
     Open,
     Opened(Option<PathBuf>),
     Remove(usize),
@@ -117,16 +168,57 @@ impl State {
         &self.results
     }
 
-    /// Any result file, shown under `source`.
+    /// What Run is waiting on: each request file and its request.
+    #[cfg(test)]
+    pub fn pending_requests(&self) -> Vec<(String, ExperimentRequest)> {
+        self.pending.iter().filter_map(|p| p.request.as_ref().map(|(rel, _, r)| (rel.clone(), r.clone()))).collect()
+    }
+
+    #[cfg(test)]
+    pub fn previews(&self) -> &[(String, Result<ResolvedExperiment, String>)] {
+        &self.previews
+    }
+
+    #[cfg(test)]
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Any result file, shown under `source`, with its resolved sidecar if
+    /// there is one.
     pub fn load_file(&mut self, path: &std::path::Path, source: String) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{source}: {e}"))?;
         let result = RunResult::parse(&text).map_err(|e| format!("{source}: {e}"))?;
+        let resolved = std::fs::read_to_string(sidecar(&path.to_string_lossy(), "resolved"))
+            .ok()
+            .and_then(|t| ResolvedExperiment::parse(&t).ok());
         self.results.retain(|l| l.source != source);
-        self.results.push(Loaded { source, result });
+        self.results.push(Loaded { source, result, resolved });
         Ok(())
     }
 
     pub fn update(&mut self, msg: Msg, ctx: &Ctx) -> Out<Msg> {
+        if matches!(
+            msg,
+            Msg::Mode(_)
+                | Msg::ToggleOp(..)
+                | Msg::ToggleCore(..)
+                | Msg::Memory(_)
+                | Msg::Dram(_)
+                | Msg::SpatzKernels(_)
+                | Msg::Timeout(_)
+                | Msg::Host(_)
+                | Msg::TogglePlacement(..)
+                | Msg::Power(_)
+                | Msg::Images(_)
+                | Msg::Frontend(_)
+                | Msg::Serial(_)
+        ) {
+            // The preview is of the old settings now.
+            self.generation += 1;
+            self.previews.clear();
+            self.preview_open = None;
+        }
         match msg {
             Msg::Mode(m) => self.mode = m,
             Msg::Filter(s) => self.filter = s,
@@ -145,28 +237,57 @@ impl State {
                 }
             }
             Msg::Memory(m) => self.memory = m,
-            Msg::Dram(d) => self.dram = d,
+            Msg::Dram(d) => self.dram = d.value,
             Msg::SpatzKernels(k) => self.spatz_kernels = k,
             Msg::Timeout(s) => self.timeout = s,
-            Msg::Host(h) => self.host = h,
+            Msg::Host(h) => self.host = h.value,
             Msg::TogglePlacement(p, on) => {
                 if on {
                     self.placements.insert(p);
                 } else {
-                    self.placements.remove(p);
+                    self.placements.remove(&p);
                 }
             }
             Msg::Power(b) => self.power = b,
             Msg::Images(s) => self.images = s,
             Msg::Frontend(f) => self.frontend = f,
             Msg::Serial(b) => self.serial = b,
-            Msg::Run => match self.jobs(ctx) {
-                Ok(jobs) => {
+            Msg::Preview => match self.plan(ctx, "work/gui/tmp/preview") {
+                Ok(plan) => {
                     self.error = None;
-                    return Out::jobs(jobs);
+                    return self.resolve(ctx, &plan, false);
                 }
                 Err(e) => self.error = Some(e),
             },
+            Msg::Run => match self.plan(ctx, &format!("work/gui/runs/{}", stamp())) {
+                // Isolated runs are not experiment requests: straight to the queue.
+                Ok(plan) if plan.iter().all(|p| p.request.is_none()) => {
+                    self.error = None;
+                    return Out::jobs(plan.into_iter().map(|p| p.job).collect());
+                }
+                Ok(plan) => {
+                    self.error = None;
+                    let out = self.resolve(ctx, &plan, true);
+                    self.pending = plan;
+                    return out;
+                }
+                Err(e) => self.error = Some(e),
+            },
+            Msg::Resolved { launch, generation, outcomes } => {
+                self.resolving = false;
+                let current = generation == self.generation;
+                if current {
+                    self.previews = self.preview_labels.iter().cloned().zip(outcomes.iter().cloned()).collect();
+                }
+                if launch {
+                    return self.launch(ctx, outcomes);
+                }
+            }
+            Msg::OpenPreview(i) => self.preview_open = i,
+            Msg::OpenNode(n) => self.open_node = n,
+            Msg::Copy(s) => {
+                return Out { task: iced::clipboard::write(s), toast: Some("copied".into()), ..Out::none() };
+            }
             Msg::Open => {
                 let dir = ctx.settings.workspace.join("results");
                 return Out::task(Task::perform(
@@ -199,12 +320,12 @@ impl State {
         Out::none()
     }
 
-    fn jobs(&self, ctx: &Ctx) -> Result<Vec<NewJob>, String> {
+    /// The jobs the settings ask for, writing under `run`.
+    fn plan(&self, ctx: &Ctx, run: &str) -> Result<Vec<Planned>, String> {
         if self.selected.is_empty() {
             return Err("select at least one op".into());
         }
-        let run = format!("work/gui/runs/{}", stamp());
-        let mut jobs = Vec::new();
+        let mut plan = Vec::new();
         match self.mode {
             Mode::Isolated => {
                 if self.cores.is_empty() {
@@ -213,7 +334,7 @@ impl State {
                 let timeout: u32 = self.timeout.trim().parse().map_err(|_| "timeout must be whole seconds")?;
                 let cores: Vec<&str> = CORES.iter().copied().filter(|c| self.cores.contains(c)).collect();
                 // The device only exists in the modelled memory system.
-                let dram = if self.memory == "real" { self.dram } else { DramChoice::Fixed };
+                let dram = if self.memory == "real" { self.dram.as_str() } else { "fixed" };
                 for op in &self.selected {
                     let out = format!("{run}/{}.json", op.replace('/', "_"));
                     let mut inv = Invocation::new("pipeline/run.py")
@@ -229,11 +350,15 @@ impl State {
                         .arg("--out")
                         .arg(out.clone());
                     inv = with_explicit_dram(inv, dram);
-                    let mem = if dram == DramChoice::Fixed { self.memory.to_string() } else { dram.arg().to_string() };
-                    jobs.push(NewJob {
-                        title: format!("{op} on {} ({mem} memory)", cores.join(", ")),
-                        kind: JobKind::Run { out },
-                        inv,
+                    let mem = if dram == "fixed" { self.memory.to_string() } else { dram.to_string() };
+                    plan.push(Planned {
+                        label: op.clone(),
+                        job: NewJob {
+                            title: format!("{op} on {} ({mem} memory)", cores.join(", ")),
+                            kind: JobKind::Run { out },
+                            inv,
+                        },
+                        request: None,
                     });
                 }
             }
@@ -242,19 +367,23 @@ impl State {
                     return Err("select at least one placement".into());
                 }
                 let images: u32 = self.images.trim().parse().map_err(|_| "samples must be a whole number")?;
+                // "mapped" first, then engines in the schema's order.
+                let mut placements: Vec<&str> = self.placements.iter().map(String::as_str).collect();
+                placements.sort_by_key(|p| (*p != MAPPED, *p));
                 for op in &self.selected {
-                    let kws = ctx.ops.iter().any(|o| &o.arg == op && o.app.as_deref() == Some("kws"));
-                    for p in PLACEMENTS.iter().copied().filter(|p| self.placements.contains(p)) {
+                    let app = ctx.ops.iter().find(|o| &o.arg == op).and_then(|o| o.app.as_deref());
+                    let kws = app == Some("kws");
+                    for &p in &placements {
                         let mut tag = format!("{}-{}-{p}", op.replace('/', "_"), self.host);
                         let mut inv =
-                            Invocation::new("pipeline/run_hetero.py").arg(op.clone()).arg("--host").arg(self.host);
-                        if p != "mapped" {
+                            Invocation::new("pipeline/run_hetero.py").arg(op.clone()).arg("--host").arg(&self.host);
+                        if p != MAPPED {
                             inv = inv.arg("--pin").arg(p);
                         }
                         inv = inv.arg("--images").arg(images.to_string()).flag(self.power, "--power").arg("-q");
-                        inv = with_explicit_dram(inv, self.dram);
-                        if self.dram != DramChoice::Fixed {
-                            tag += &format!("-{}", self.dram.arg());
+                        inv = with_explicit_dram(inv, &self.dram);
+                        if self.dram != "fixed" {
+                            tag += &format!("-{}", self.dram);
                         }
                         if kws {
                             inv = inv.arg("--frontend").arg(self.frontend).flag(self.serial, "--serial");
@@ -262,19 +391,75 @@ impl State {
                         }
                         let out = format!("{run}/{tag}.json");
                         inv = inv.arg("--out").arg(out.clone());
-                        let place = if p == "mapped" { "mapped".to_string() } else { format!("pinned to {p}") };
-                        let mem =
-                            if self.dram == DramChoice::Fixed { String::new() } else { format!(", {}", self.dram) };
-                        jobs.push(NewJob {
-                            title: format!("{op} on the SoC, {} host, {place}{mem}", self.host),
-                            kind: JobKind::Run { out },
-                            inv,
+                        let place = if p == MAPPED { "mapped".to_string() } else { format!("pinned to {p}") };
+                        let mem = if self.dram == "fixed" { String::new() } else { format!(", {}", self.dram) };
+
+                        let mut request = ExperimentRequest::new(op, &self.host, &self.dram).execution(
+                            app,
+                            Some(self.frontend),
+                            self.serial,
+                            self.power,
+                        );
+                        request.pin = (p != MAPPED).then(|| p.to_string());
+                        plan.push(Planned {
+                            label: format!("{op} · {place}"),
+                            request: Some((sidecar(&out, "request"), sidecar(&out, "resolved"), request)),
+                            job: NewJob {
+                                title: format!("{op} on the SoC, {} host, {place}{mem}", self.host),
+                                kind: JobKind::Run { out },
+                                inv,
+                            },
                         });
                     }
                 }
             }
         }
-        Ok(jobs)
+        Ok(plan)
+    }
+
+    /// Ask the backend to resolve every request in `plan`.
+    fn resolve(&mut self, ctx: &Ctx, plan: &[Planned], launch: bool) -> Out<Msg> {
+        let requests: Vec<(String, ExperimentRequest)> =
+            plan.iter().filter_map(|p| p.request.as_ref().map(|(rel, _, r)| (rel.clone(), r.clone()))).collect();
+        self.resolving = true;
+        self.preview_open = None;
+        self.previews.clear();
+        self.preview_labels = plan.iter().filter(|p| p.request.is_some()).map(|p| p.label.clone()).collect();
+        let generation = self.generation;
+        Out::task(Task::perform(super::resolve_all(ctx.settings.clone(), requests), move |outcomes| Msg::Resolved {
+            launch,
+            generation,
+            outcomes,
+        }))
+    }
+
+    /// Run's requests have resolved: queue the jobs, or say why not.
+    fn launch(&mut self, ctx: &Ctx, outcomes: Vec<Result<ResolvedExperiment, String>>) -> Out<Msg> {
+        let plan = std::mem::take(&mut self.pending);
+        let mut warning = None;
+        if let Some(e) = outcomes.iter().find_map(|o| o.as_ref().err()) {
+            if !bridge_too_old(e) {
+                // The backend is the authority on what a request means: a
+                // request it refuses is not run under some other reading.
+                self.error = Some(format!("not started: {e}"));
+                return Out::none();
+            }
+            warning = Some("started without a resolved preview: the pipeline predates resolve-experiment".to_string());
+        }
+        let mut answers = outcomes.into_iter();
+        for p in &plan {
+            if let Some((_, resolved_rel, _)) = &p.request
+                && let Some(Ok(r)) = answers.next()
+            {
+                let path = ctx.settings.workspace.join(resolved_rel);
+                if let Err(e) = std::fs::write(&path, &r.raw) {
+                    warning = Some(format!("{}: {e}", path.display()));
+                }
+            }
+        }
+        let mut out = Out::jobs(plan.into_iter().map(|p| p.job).collect());
+        out.toast = warning;
+        out
     }
 
     pub fn view<'a>(&'a self, ctx: &Ctx<'a>) -> Element<'a, Msg> {
@@ -312,6 +497,8 @@ impl State {
         ]
         .spacing(24);
 
+        let memories = memory_choices(ctx.schema);
+        let memory = pick_list(memories.clone(), Some(chosen(&memories, &self.dram)), Msg::Dram).text_size(13);
         let options: Element<'a, Msg> = match self.mode {
             Mode::Isolated => column![
                 labelled(
@@ -319,7 +506,7 @@ impl State {
                     row(CORES.iter().map(|&c| checkbox(self.cores.contains(c)).label(c).on_toggle(move |b| Msg::ToggleCore(c, b)).into())).spacing(16)
                 ),
                 labelled("Memory", radios(&[("modelled (real)", "real"), ("ideal (1-cycle)", "ideal")], self.memory, Msg::Memory)),
-                labelled("Main memory", pick_list(DramChoice::ALL, Some(self.dram), Msg::Dram).text_size(13)),
+                labelled("Main memory", memory),
                 labelled("Spatz kernels", radios(&[("hand-written RVV", "tuned"), ("autovectorized", "autovec")], self.spatz_kernels, Msg::SpatzKernels)),
                 labelled("Timeout [s]", text_input("600", &self.timeout).on_input(Msg::Timeout).width(Length::Fixed(90.0))),
                 muted("ara is the CVA6 host with its Ara vector unit; each core runs the best code the pipeline has for it."),
@@ -328,14 +515,16 @@ impl State {
             .into(),
             Mode::Hetero => {
                 let any_kws = self.selected.iter().any(|a| ctx.ops.iter().any(|o| &o.arg == a && o.app.as_deref() == Some("kws")));
+                let hosts = host_choices(ctx.schema);
+                let placements = std::iter::once((MAPPED.to_string(), "mapper decides".to_string()))
+                    .chain(engine_choices(ctx.schema).into_iter().map(|e| (e.value.clone(), format!("pin to {}", e.value))));
                 let mut c = column![
-                    labelled("Host", radios(&[("CVA6", "cva6"), ("CVA6 + Ara", "ara")], self.host, Msg::Host)),
-                    labelled("Main memory", pick_list(DramChoice::ALL, Some(self.dram), Msg::Dram).text_size(13)),
+                    labelled("Host", pick_list(hosts.clone(), Some(chosen(&hosts, &self.host)), Msg::Host).text_size(13)),
+                    labelled("Main memory", memory),
                     labelled(
                         "Placement",
-                        row(PLACEMENTS.iter().map(|&p| {
-                            let label = if p == "mapped" { "mapper decides".to_string() } else { format!("pin to {p}") };
-                            checkbox(self.placements.contains(p)).label(label).on_toggle(move |b| Msg::TogglePlacement(p, b)).into()
+                        row(placements.map(|(p, label)| {
+                            checkbox(self.placements.contains(&p)).label(label).on_toggle(move |b| Msg::TogglePlacement(p.clone(), b)).into()
                         }))
                         .spacing(16)
                     ),
@@ -353,7 +542,7 @@ impl State {
                         .spacing(16),
                     ));
                 }
-                c.push(muted("One job per op and placement. Samples caps how much of an application's evaluation set runs.")).into()
+                c.push(muted("One job per op and placement. Samples caps how much of an application's evaluation set runs. A pin prefers that engine for the nodes it can run; it does not move the whole graph.")).into()
             }
         };
 
@@ -361,11 +550,23 @@ impl State {
             Mode::Isolated => self.selected.len(),
             Mode::Hetero => self.selected.len() * self.placements.len(),
         };
+        let soc = self.mode == Mode::Hetero;
+        let run_label = if self.resolving && !self.pending.is_empty() {
+            "Resolving…".to_string()
+        } else {
+            format!("Run {n_jobs} job{}", if n_jobs == 1 { "" } else { "s" })
+        };
         let run_row = row![
-            button(text(format!("Run {n_jobs} job{}", if n_jobs == 1 { "" } else { "s" })).size(14))
+            button(text(run_label).size(14))
                 .style(button::primary)
-                .on_press_maybe((n_jobs > 0).then_some(Msg::Run)),
+                .on_press_maybe((n_jobs > 0 && !self.resolving).then_some(Msg::Run)),
         ]
+        .push(soc.then(|| {
+            small_button(
+                if self.resolving && self.pending.is_empty() { "Resolving…" } else { "Preview" },
+                (n_jobs > 0 && !self.resolving).then_some(Msg::Preview),
+            )
+        }))
         .push(self.error.as_deref().map(error))
         .spacing(12)
         .align_y(iced::Center);
@@ -381,6 +582,7 @@ impl State {
                 .spacing(16),
                 run_row
             ]
+            .push((soc && !self.previews.is_empty()).then(|| self.preview_view()))
             .spacing(12),
         );
 
@@ -405,7 +607,7 @@ impl State {
         let mut hetero_ops: Vec<&str> = Vec::new();
         for (i, l) in self.results.iter().enumerate() {
             match &l.result {
-                RunResult::Isolated(r) => cards = cards.push(self.isolated_card(i, l, r)),
+                RunResult::Isolated(r) => cards = cards.push(self.isolated_card(i, l, r, ctx)),
                 RunResult::Hetero(r) => {
                     if !hetero_ops.contains(&r.op.as_str()) {
                         hetero_ops.push(&r.op);
@@ -434,7 +636,44 @@ impl State {
         .into()
     }
 
-    fn isolated_card<'a>(&'a self, i: usize, l: &'a Loaded, r: &'a IsolatedResult) -> Element<'a, Msg> {
+    /// What each SoC job resolves to: the backend's reading of the settings.
+    fn preview_view<'a>(&'a self) -> Element<'a, Msg> {
+        let mut c = column![text("Resolved by the pipeline").size(14)].spacing(4);
+        for (i, (label, outcome)) in self.previews.iter().enumerate() {
+            let open = self.preview_open == Some(i);
+            let line: Element<'a, Msg> = match outcome {
+                Ok(r) => row![
+                    text(label.as_str()).size(13).width(Length::Fixed(260.0)),
+                    mono(format!(
+                        "{} · {} · {} · {}",
+                        r.hardware.design_slug,
+                        r.memory.label,
+                        r.simulator.target,
+                        short(&r.resolved_fingerprint)
+                    ))
+                    .width(Length::Fill),
+                    small_button(if open { "Hide" } else { "Details" }, Some(Msg::OpenPreview((!open).then_some(i)))),
+                ]
+                .spacing(8)
+                .align_y(iced::Center)
+                .into(),
+                Err(e) => {
+                    row![text(label.as_str()).size(13).width(Length::Fixed(260.0)), error(e.as_str())].spacing(8).into()
+                }
+            };
+            c = c.push(line);
+            if open && let Ok(r) = outcome {
+                c = c.push(
+                    container(resolved::summary(r, Some(Msg::Copy(r.raw.clone()))))
+                        .padding(8)
+                        .style(container::rounded_box),
+                );
+            }
+        }
+        c.into()
+    }
+
+    fn isolated_card<'a>(&'a self, i: usize, l: &'a Loaded, r: &'a IsolatedResult, ctx: &Ctx) -> Element<'a, Msg> {
         let base = r.baseline();
         let best = r.results.iter().filter_map(|c| c.cycles).min();
         let bars = r
@@ -496,7 +735,7 @@ impl State {
                     } else if r.dram.is_empty() || r.dram == "fixed" {
                         "modelled".to_string()
                     } else {
-                        DramChoice::from_arg(&r.dram).to_string()
+                        ctx.schema.and_then(|s| s.memory(&r.dram)).map_or(r.dram.clone(), |m| m.label.clone())
                     },
                     r.spatz_kernels
                 ))
@@ -571,8 +810,16 @@ impl State {
                     text(r.variant()).size(13).width(Length::Fixed(230.0)),
                     column![
                         text(format!("engines: {engines}")).size(12),
-                        muted(format!("{}   {}", extra.join(" · "), l.source))
+                        muted(format!("{}   {}", extra.join(" · "), l.source)),
                     ]
+                    .push(l.resolved.as_ref().map(|x| {
+                        muted(format!(
+                            "resolved {} · {} · design {}",
+                            short(&x.resolved_fingerprint),
+                            x.memory.label,
+                            x.hardware.design_slug
+                        ))
+                    }))
                     .width(Length::Fill),
                     small_button("Remove", Some(Msg::Remove(*i))),
                 ]
@@ -591,15 +838,26 @@ impl State {
         ]
         .spacing(8);
         if self.show_mapping {
-            for (_, _, r) in group {
-                let nodes = r
-                    .mapping
-                    .nodes
-                    .iter()
-                    .map(|n| format!("{}:{}→{}", n.node, n.op, n.engine))
-                    .collect::<Vec<_>>()
-                    .join("  ");
-                body = body.push(column![text(r.variant()).size(12), mono(nodes)].spacing(2));
+            for (_, l, r) in group {
+                let nodes: Element<'a, Msg> = if evidence::has_evidence(&r.mapping, &r.result.nodes) {
+                    // A run_hetero result keeps both layers on the completed
+                    // nodes: the implementation (actual) and cycles (measured).
+                    let lines = evidence::join(&r.mapping, &r.result.nodes, &r.result.nodes);
+                    let open = self.open_node.as_ref().filter(|(s, _)| *s == l.source).map(|(_, i)| *i);
+                    let source = l.source.clone();
+                    evidence::table(&lines, open, move |i| Msg::OpenNode(i.map(|i| (source.clone(), i))))
+                } else {
+                    mono(
+                        r.mapping
+                            .nodes
+                            .iter()
+                            .map(|n| format!("{}:{}→{}", n.node, n.op, n.engine))
+                            .collect::<Vec<_>>()
+                            .join("  "),
+                    )
+                    .into()
+                };
+                body = body.push(column![text(r.variant()).size(12), nodes].spacing(2));
             }
         }
         if self.show_caches {
@@ -655,13 +913,116 @@ mod tests {
 
     #[test]
     fn compare_jobs_make_fixed_memory_explicit() {
-        let invocation = with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Fixed);
+        let invocation = with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), "fixed");
         assert_eq!(invocation.args, vec!["--dram".to_string(), "fixed".to_string()]);
     }
 
     #[test]
     fn compare_jobs_keep_non_fixed_memory_explicit() {
-        let invocation = with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), DramChoice::Lpddr5);
+        let invocation = with_explicit_dram(Invocation::new("pipeline/run_hetero.py"), "lpddr5");
         assert_eq!(invocation.args, vec!["--dram".to_string(), "lpddr5".to_string()]);
+    }
+
+    fn ctx_with<'a>(settings: &'a crate::settings::Settings, ops: &'a [crate::model::OpInfo]) -> Ctx<'a> {
+        Ctx { settings, ops, knobs: None, schema: None }
+    }
+
+    fn op(arg: &str, app: Option<&str>) -> crate::model::OpInfo {
+        crate::model::OpInfo {
+            name: arg.into(),
+            arg: arg.into(),
+            source: "workspace".into(),
+            app: app.map(Into::into),
+            has_inputs: true,
+        }
+    }
+
+    #[test]
+    fn soc_jobs_carry_the_request_they_resolve_from() {
+        let settings = crate::settings::Settings::default();
+        let ops = [op("ops/kws", Some("kws")), op("ops/mymatmul", None)];
+        let ctx = ctx_with(&settings, &ops);
+        let mut s = State::default();
+        for m in [
+            Msg::Mode(Mode::Hetero),
+            Msg::ToggleOp("ops/kws".into(), true),
+            Msg::ToggleOp("ops/mymatmul".into(), true),
+            Msg::TogglePlacement("spatz".into(), true),
+            Msg::Dram(Choice { value: "lpddr5".into(), label: "LPDDR5".into() }),
+            Msg::Frontend("spatz"),
+        ] {
+            let _ = s.update(m, &ctx);
+        }
+        let plan = s.plan(&ctx, "work/gui/runs/1").unwrap();
+        let labels: Vec<&str> = plan.iter().map(|p| p.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "ops/kws · mapped",
+                "ops/kws · pinned to spatz",
+                "ops/mymatmul · mapped",
+                "ops/mymatmul · pinned to spatz"
+            ]
+        );
+        let (req_rel, resolved_rel, kws_pinned) = plan[1].request.clone().unwrap();
+        assert_eq!(req_rel, "work/gui/runs/1/ops_kws-cva6-spatz-lpddr5-fespatz.request.json");
+        assert_eq!(resolved_rel, "work/gui/runs/1/ops_kws-cva6-spatz-lpddr5-fespatz.resolved.json");
+        assert_eq!(kws_pinned.pin.as_deref(), Some("spatz"));
+        assert_eq!((kws_pinned.frontend.as_deref(), kws_pinned.dram.as_str()), (Some("spatz"), "lpddr5"));
+        let (_, _, matmul) = plan[2].request.clone().unwrap();
+        assert_eq!((matmul.pin, matmul.frontend), (None, None));
+        // The job and its request say the same thing.
+        let a = plan[1].job.inv.args.join(" ");
+        assert!(a.contains("--pin spatz") && a.contains("--dram lpddr5") && a.contains("--frontend spatz"), "{a}");
+    }
+
+    #[test]
+    fn run_waits_for_resolution_and_refuses_what_the_backend_refuses() {
+        let settings = crate::settings::Settings::default();
+        let ops = [op("ops/mymatmul", None)];
+        let ctx = ctx_with(&settings, &ops);
+        let mut s = State::default();
+        let _ = s.update(Msg::Mode(Mode::Hetero), &ctx);
+        let _ = s.update(Msg::ToggleOp("ops/mymatmul".into(), true), &ctx);
+        let out = s.update(Msg::Run, &ctx);
+        assert!(out.jobs.is_empty(), "nothing queued before the request resolves");
+        assert_eq!(s.pending_requests().len(), 1);
+
+        let generation = s.generation();
+        let out = s.update(
+            Msg::Resolved { launch: true, generation, outcomes: vec![Err("ValueError: unknown main memory".into())] },
+            &ctx,
+        );
+        assert!(out.jobs.is_empty());
+        assert!(s.error.as_deref().unwrap().contains("unknown main memory"));
+        assert_eq!(s.previews().len(), 1);
+
+        // An image whose bridge predates resolve-experiment still runs.
+        let _ = s.update(Msg::Run, &ctx);
+        let out = s.update(
+            Msg::Resolved {
+                launch: true,
+                generation: s.generation(),
+                outcomes: vec![Err("argument cmd: invalid choice: 'resolve-experiment'".into())],
+            },
+            &ctx,
+        );
+        assert_eq!(out.jobs.len(), 1);
+        assert!(out.toast.is_some());
+    }
+
+    #[test]
+    fn a_control_change_drops_the_preview_and_late_answers() {
+        let settings = crate::settings::Settings::default();
+        let ops = [op("ops/mymatmul", None)];
+        let ctx = ctx_with(&settings, &ops);
+        let mut s = State::default();
+        let _ = s.update(Msg::Mode(Mode::Hetero), &ctx);
+        let _ = s.update(Msg::ToggleOp("ops/mymatmul".into(), true), &ctx);
+        let _ = s.update(Msg::Preview, &ctx);
+        let stale = s.generation();
+        let _ = s.update(Msg::Power(true), &ctx);
+        let _ = s.update(Msg::Resolved { launch: false, generation: stale, outcomes: vec![Err("x".into())] }, &ctx);
+        assert!(s.previews().is_empty());
     }
 }

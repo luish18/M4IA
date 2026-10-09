@@ -1,0 +1,787 @@
+{
+    "parameters": [
+        {
+            "name": "HOST_VLEN",
+            "label": "Ara VLEN",
+            "group": "host_vector",
+            "unit": "bits",
+            "description": "Vector register length of the Ara unit attached to the CVA6 host.",
+            "value_kind": "integer",
+            "default": 4096,
+            "build_time": true,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "HOST_NB_LANES",
+            "label": "Ara lanes",
+            "group": "host_vector",
+            "unit": "lanes",
+            "description": "Number of vector lanes in the Ara unit attached to the CVA6 host.",
+            "value_kind": "integer",
+            "default": 4,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "HOST_LANE_WIDTH",
+            "label": "Ara lane width",
+            "group": "host_vector",
+            "unit": "bytes",
+            "description": "Datapath width of each Ara vector lane.",
+            "value_kind": "integer",
+            "default": 8,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "SPATZ_VLEN",
+            "label": "Spatz VLEN",
+            "group": "spatz_vector",
+            "unit": "bits",
+            "description": "Vector register length of each Spatz vector unit.",
+            "value_kind": "integer",
+            "default": 512,
+            "build_time": true,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "SPATZ_NB_LANES",
+            "label": "Spatz lanes",
+            "group": "spatz_vector",
+            "unit": "lanes",
+            "description": "Number of vector lanes in each Spatz vector unit.",
+            "value_kind": "integer",
+            "default": 4,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "SPATZ_LANE_WIDTH",
+            "label": "Spatz lane width",
+            "group": "spatz_vector",
+            "unit": "bytes",
+            "description": "Datapath width of each Spatz vector lane.",
+            "value_kind": "integer",
+            "default": 8,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "SNITCH_NB_CORE",
+            "label": "Snitch cluster cores",
+            "group": "cluster_shape",
+            "unit": "cores",
+            "description": "Total Snitch-cluster core count, including the control/DMA core.",
+            "value_kind": "integer",
+            "default": 9,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "SPATZ_NB_CORE",
+            "label": "Spatz cluster cores",
+            "group": "cluster_shape",
+            "unit": "cores",
+            "description": "Total Spatz-cluster core count, including the control/DMA core.",
+            "value_kind": "integer",
+            "default": 9,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "TCDM_SIZE",
+            "label": "TCDM size",
+            "group": "cluster_memory",
+            "unit": "bytes",
+            "description": "Scratchpad capacity assigned to each cluster in the heterogeneous SoC.",
+            "value_kind": "integer",
+            "default": 131072,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "ICACHE_SIZE",
+            "label": "L1 I-cache size",
+            "group": "host_cache",
+            "unit": "bytes",
+            "description": "Capacity of the CVA6 host instruction cache.",
+            "value_kind": "integer",
+            "default": 16384,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "ICACHE_WAYS",
+            "label": "L1 I-cache ways",
+            "group": "host_cache",
+            "unit": "ways",
+            "description": "Associativity of the CVA6 host instruction cache.",
+            "value_kind": "integer",
+            "default": 4,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "DCACHE_SIZE",
+            "label": "L1 D-cache size",
+            "group": "host_cache",
+            "unit": "bytes",
+            "description": "Capacity of the CVA6 host data cache.",
+            "value_kind": "integer",
+            "default": 32768,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "DCACHE_WAYS",
+            "label": "L1 D-cache ways",
+            "group": "host_cache",
+            "unit": "ways",
+            "description": "Associativity of the CVA6 host data cache.",
+            "value_kind": "integer",
+            "default": 8,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "L2_SIZE",
+            "label": "L2 size",
+            "group": "host_cache",
+            "unit": "bytes",
+            "description": "Capacity of the shared host-side L2 cache.",
+            "value_kind": "integer",
+            "default": 524288,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "L2_WAYS",
+            "label": "L2 ways",
+            "group": "host_cache",
+            "unit": "ways",
+            "description": "Associativity of the shared host-side L2 cache.",
+            "value_kind": "integer",
+            "default": 8,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "LINE_SIZE",
+            "label": "Cache line size",
+            "group": "host_cache",
+            "unit": "bytes",
+            "description": "Cache-line size used by the modelled host cache hierarchy.",
+            "value_kind": "integer",
+            "default": 64,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "NARROW_AXI_WIDTH",
+            "label": "Narrow AXI width",
+            "group": "interconnect",
+            "unit": "bytes",
+            "description": "Width of the narrow AXI path used for host-to-cluster accesses.",
+            "value_kind": "integer",
+            "default": 8,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        },
+        {
+            "name": "WIDE_AXI_WIDTH",
+            "label": "Wide AXI width",
+            "group": "interconnect",
+            "unit": "bytes",
+            "description": "Width of the wide AXI path used toward shared main memory.",
+            "value_kind": "integer",
+            "default": 64,
+            "build_time": false,
+            "screening_values": [],
+            "operational_source": "pipeline/sweep/design.py"
+        }
+    ],
+    "engines": [
+        {
+            "name": "cva6",
+            "system_id": 0,
+            "label": "CVA6 host",
+            "kind": "host",
+            "deployment_engine": "Cva6HostEngine",
+            "description": "Logical host engine; scalar CVA6 and CVA6+Ara are profiles of it.",
+            "runtime_macro": "HES_ENGINE_CVA6",
+            "architectural_source": "targets/hetero/system.py",
+            "runtime_macro_source": "pipeline/hetero_platform/progress.py"
+        },
+        {
+            "name": "snitch",
+            "system_id": 1,
+            "label": "Snitch cluster",
+            "kind": "cluster",
+            "deployment_engine": "SnitchClusterEngine",
+            "description": "Snitch cluster offload engine.",
+            "runtime_macro": "HES_ENGINE_SNITCH",
+            "architectural_source": "targets/hetero/system.py",
+            "runtime_macro_source": "pipeline/hetero_platform/progress.py"
+        },
+        {
+            "name": "spatz",
+            "system_id": 2,
+            "label": "Spatz cluster",
+            "kind": "cluster",
+            "deployment_engine": "SpatzClusterEngine",
+            "description": "Spatz/RVV cluster offload engine.",
+            "runtime_macro": "HES_ENGINE_SPATZ",
+            "architectural_source": "targets/hetero/system.py",
+            "runtime_macro_source": "pipeline/hetero_platform/progress.py"
+        }
+    ],
+    "host_profiles": [
+        {
+            "name": "ara",
+            "label": "CVA6 + Ara host",
+            "logical_engine": "cva6",
+            "vector": true,
+            "description": "The CVA6 logical host with Ara/RVV vector execution, used by hetero_ara.",
+            "target": "hetero_ara",
+            "operational_source": "pipeline/build_mesh.py::HOSTS"
+        },
+        {
+            "name": "cva6",
+            "label": "Scalar CVA6 host",
+            "logical_engine": "cva6",
+            "vector": false,
+            "description": "Scalar CVA6 orchestrator used by hetero_soc.",
+            "target": "hetero_soc",
+            "operational_source": "pipeline/build_mesh.py::HOSTS"
+        }
+    ],
+    "mapping_strategies": [
+        {
+            "id": "measured_rate_greedy",
+            "implementation": "CostEngineMapper",
+            "factory": "make_mapper",
+            "cost_model": "measured_rates_plus_offload",
+            "description": "Current node-local greedy mapper: among engines that can execute a node, choose the minimum estimated cost using measured rates plus fixed/per-byte offload costs. pin prefers a compatible node on the requested engine; it is not a whole-graph guarantee or a strategy.",
+            "implementation_source": "pipeline/hetero_platform/mapper.py",
+            "integration_source": "pipeline/hetero_platform/generate.py",
+            "decision_explanation": {
+                "available": true,
+                "path": "mapping.nodes[].mapping_explanation",
+                "evidence": "descriptive_shadow_of_mapper_decision"
+            }
+        }
+    ],
+    "kernel_implementations": [
+        {
+            "id": "cva6.fp32.matmul_gemm.deeploy_generic",
+            "engine": "cva6",
+            "operators": [
+                "MatMul",
+                "Gemm"
+            ],
+            "classification": "generic_c",
+            "source_file": null,
+            "source_tree": "deps/deeploy/TargetLibraries/Generic/src",
+            "symbols": [
+                "MatMul_fp32_fp32_fp32",
+                "Gemm_fp32_fp32_fp32_fp32"
+            ],
+            "build_selection": {
+                "mechanism": "Generic library compiled without symbol rename for the host image",
+                "selector": null
+            },
+            "runtime_dispatch": "Deeploy-generated Network.c calls the Generic symbols on host-mapped nodes.",
+            "compatibility_conditions": null,
+            "fallback_id": null
+        },
+        {
+            "id": "snitch.fp32.matmul_gemm.ssr_frep",
+            "engine": "snitch",
+            "operators": [
+                "MatMul",
+                "Gemm"
+            ],
+            "classification": "handwritten_ssr_frep",
+            "source_file": "runtime/snitch/kernels/gemm_fp32_ssr.c",
+            "source_tree": null,
+            "symbols": [
+                "MatMul_fp32_fp32_fp32",
+                "Gemm_fp32_fp32_fp32_fp32"
+            ],
+            "build_selection": {
+                "mechanism": "Generic symbols are renamed while the Snitch source retains the public symbols",
+                "selector": "-D<symbol>=<symbol>_generic"
+            },
+            "runtime_dispatch": "cluster_main.c dispatches HES_K_MATMUL_FP32 and HES_K_GEMM_FP32 to the public symbols.",
+            "compatibility_conditions": {
+                "optimized_entry": "M != 0, N != 0, and O >= 8",
+                "scalar_tail": "O % 8 columns execute the scalar tail in the same source"
+            },
+            "fallback_id": "snitch.fp32.matmul_gemm.deeploy_generic_fallback"
+        },
+        {
+            "id": "snitch.fp32.matmul_gemm.deeploy_generic_fallback",
+            "engine": "snitch",
+            "operators": [
+                "MatMul",
+                "Gemm"
+            ],
+            "classification": "generic_c_fallback",
+            "source_file": null,
+            "source_tree": "deps/deeploy/TargetLibraries/Generic/src",
+            "symbols": [
+                "MatMul_fp32_fp32_fp32_generic",
+                "Gemm_fp32_fp32_fp32_fp32_generic"
+            ],
+            "build_selection": {
+                "mechanism": "Generic library is compiled with public MatMul/Gemm symbols renamed",
+                "selector": "-D<symbol>=<symbol>_generic"
+            },
+            "runtime_dispatch": "Called directly by the Snitch SSR/FREP source for empty inputs or O < 8.",
+            "compatibility_conditions": null,
+            "fallback_id": null
+        },
+        {
+            "id": "spatz.fp32.matmul_gemm.rvv_tuned",
+            "engine": "spatz",
+            "operators": [
+                "MatMul",
+                "Gemm"
+            ],
+            "classification": "handwritten_rvv",
+            "source_file": "runtime/spatz/kernels/gemm_fp32_rvv.c",
+            "source_tree": null,
+            "symbols": [
+                "MatMul_fp32_fp32_fp32",
+                "Gemm_fp32_fp32_fp32_fp32"
+            ],
+            "build_selection": {
+                "mechanism": "Generic symbols are renamed while the Spatz RVV source retains the public symbols",
+                "selector": "-D<symbol>=<symbol>_generic"
+            },
+            "runtime_dispatch": "cluster_main.c dispatches HES_K_MATMUL_FP32 and HES_K_GEMM_FP32 to the public symbols.",
+            "compatibility_conditions": {
+                "matmul_optimized_entry": "M != 0, N != 0, and O != 0",
+                "gemm_optimized_entry": "M != 0, N != 0, O != 0, transA == 0, and transB == 0"
+            },
+            "fallback_id": "spatz.fp32.matmul_gemm.deeploy_generic_fallback"
+        },
+        {
+            "id": "spatz.fp32.matmul_gemm.deeploy_generic_fallback",
+            "engine": "spatz",
+            "operators": [
+                "MatMul",
+                "Gemm"
+            ],
+            "classification": "generic_c_fallback",
+            "source_file": null,
+            "source_tree": "deps/deeploy/TargetLibraries/Generic/src",
+            "symbols": [
+                "MatMul_fp32_fp32_fp32_generic",
+                "Gemm_fp32_fp32_fp32_fp32_generic"
+            ],
+            "build_selection": {
+                "mechanism": "Generic library is compiled with public MatMul/Gemm symbols renamed",
+                "selector": "-D<symbol>=<symbol>_generic"
+            },
+            "runtime_dispatch": "Called directly by the Spatz RVV source for empty inputs; GEMM also falls back for either transpose.",
+            "compatibility_conditions": null,
+            "fallback_id": null
+        }
+    ],
+    "main_memories": [
+        {
+            "name": "fixed",
+            "label": "Fixed main memory",
+            "description": "The current fixed main-memory model.",
+            "model": "fixed_latency",
+            "operational_key": "DRAM_KIND",
+            "operational_sources": [
+                {
+                    "path": "pipeline/common.py",
+                    "symbols": [
+                        "DRAM_KINDS",
+                        "use_dram"
+                    ],
+                    "role": "public selection validation and HES_DESIGN injection"
+                },
+                {
+                    "path": "targets/hetero/memsys.py",
+                    "symbols": [
+                        "DRAM_KIND",
+                        "DRAM_LATENCY",
+                        "DRAM_WIDTH",
+                        "L2",
+                        "make_main_memory"
+                    ],
+                    "role": "selection consumption and memory/cache behavioral consequences"
+                },
+                {
+                    "path": "targets/hetero/dram_presets.py",
+                    "symbols": [
+                        "KINDS"
+                    ],
+                    "role": "supported-kind registry"
+                }
+            ],
+            "supports_overrides": false,
+            "override_fields": []
+        },
+        {
+            "name": "lpddr4",
+            "label": "LPDDR4 main memory",
+            "description": "Main memory using the current operational LPDDR4 preset.",
+            "model": "dram",
+            "operational_key": "DRAM_KIND",
+            "operational_sources": [
+                {
+                    "path": "pipeline/common.py",
+                    "symbols": [
+                        "DRAM_KINDS",
+                        "use_dram"
+                    ],
+                    "role": "public selection validation and HES_DESIGN injection"
+                },
+                {
+                    "path": "targets/hetero/memsys.py",
+                    "symbols": [
+                        "DRAM_KIND",
+                        "DRAM_LATENCY",
+                        "DRAM_WIDTH",
+                        "L2",
+                        "make_main_memory"
+                    ],
+                    "role": "selection consumption and memory/cache behavioral consequences"
+                },
+                {
+                    "path": "targets/hetero/dram_presets.py",
+                    "symbols": [
+                        "KINDS",
+                        "PRESETS",
+                        "params"
+                    ],
+                    "role": "supported-kind registry and device preset expansion"
+                }
+            ],
+            "supports_overrides": true,
+            "override_fields": [
+                "kind",
+                "mapping",
+                "ctrl_ps",
+                "granule",
+                "channels",
+                "ranks",
+                "bankgroups",
+                "banks",
+                "rows",
+                "page_bytes",
+                "width_bits",
+                "burst_length",
+                "mtps",
+                "tCK",
+                "tRCD",
+                "tRP",
+                "tRPab",
+                "tRAS",
+                "tRC",
+                "tRL",
+                "tWL",
+                "tRRD_S",
+                "tRRD_L",
+                "tFAW",
+                "tCCD_S",
+                "tCCD_L",
+                "tWTR_S",
+                "tWTR_L",
+                "tRTW",
+                "tRTW_L",
+                "tWR",
+                "tRTP",
+                "tREFI",
+                "tRFC",
+                "wq_depth",
+                "wq_high",
+                "wq_low",
+                "hb_ck_ps",
+                "hb_ca_clks",
+                "hb_lat_clks",
+                "hb_fixed_2x",
+                "hb_bus_bytes",
+                "hb_csm_ps",
+                "hb_rwr_ps"
+            ]
+        },
+        {
+            "name": "lpddr4x",
+            "label": "LPDDR4X main memory",
+            "description": "Main memory using the current operational LPDDR4X preset.",
+            "model": "dram",
+            "operational_key": "DRAM_KIND",
+            "operational_sources": [
+                {
+                    "path": "pipeline/common.py",
+                    "symbols": [
+                        "DRAM_KINDS",
+                        "use_dram"
+                    ],
+                    "role": "public selection validation and HES_DESIGN injection"
+                },
+                {
+                    "path": "targets/hetero/memsys.py",
+                    "symbols": [
+                        "DRAM_KIND",
+                        "DRAM_LATENCY",
+                        "DRAM_WIDTH",
+                        "L2",
+                        "make_main_memory"
+                    ],
+                    "role": "selection consumption and memory/cache behavioral consequences"
+                },
+                {
+                    "path": "targets/hetero/dram_presets.py",
+                    "symbols": [
+                        "KINDS",
+                        "PRESETS",
+                        "params"
+                    ],
+                    "role": "supported-kind registry and device preset expansion"
+                }
+            ],
+            "supports_overrides": true,
+            "override_fields": [
+                "kind",
+                "mapping",
+                "ctrl_ps",
+                "granule",
+                "channels",
+                "ranks",
+                "bankgroups",
+                "banks",
+                "rows",
+                "page_bytes",
+                "width_bits",
+                "burst_length",
+                "mtps",
+                "tCK",
+                "tRCD",
+                "tRP",
+                "tRPab",
+                "tRAS",
+                "tRC",
+                "tRL",
+                "tWL",
+                "tRRD_S",
+                "tRRD_L",
+                "tFAW",
+                "tCCD_S",
+                "tCCD_L",
+                "tWTR_S",
+                "tWTR_L",
+                "tRTW",
+                "tRTW_L",
+                "tWR",
+                "tRTP",
+                "tREFI",
+                "tRFC",
+                "wq_depth",
+                "wq_high",
+                "wq_low",
+                "hb_ck_ps",
+                "hb_ca_clks",
+                "hb_lat_clks",
+                "hb_fixed_2x",
+                "hb_bus_bytes",
+                "hb_csm_ps",
+                "hb_rwr_ps"
+            ]
+        },
+        {
+            "name": "lpddr5",
+            "label": "LPDDR5 main memory",
+            "description": "Main memory using the current operational LPDDR5 preset.",
+            "model": "dram",
+            "operational_key": "DRAM_KIND",
+            "operational_sources": [
+                {
+                    "path": "pipeline/common.py",
+                    "symbols": [
+                        "DRAM_KINDS",
+                        "use_dram"
+                    ],
+                    "role": "public selection validation and HES_DESIGN injection"
+                },
+                {
+                    "path": "targets/hetero/memsys.py",
+                    "symbols": [
+                        "DRAM_KIND",
+                        "DRAM_LATENCY",
+                        "DRAM_WIDTH",
+                        "L2",
+                        "make_main_memory"
+                    ],
+                    "role": "selection consumption and memory/cache behavioral consequences"
+                },
+                {
+                    "path": "targets/hetero/dram_presets.py",
+                    "symbols": [
+                        "KINDS",
+                        "PRESETS",
+                        "params"
+                    ],
+                    "role": "supported-kind registry and device preset expansion"
+                }
+            ],
+            "supports_overrides": true,
+            "override_fields": [
+                "kind",
+                "mapping",
+                "ctrl_ps",
+                "granule",
+                "channels",
+                "ranks",
+                "bankgroups",
+                "banks",
+                "rows",
+                "page_bytes",
+                "width_bits",
+                "burst_length",
+                "mtps",
+                "tCK",
+                "tRCD",
+                "tRP",
+                "tRPab",
+                "tRAS",
+                "tRC",
+                "tRL",
+                "tWL",
+                "tRRD_S",
+                "tRRD_L",
+                "tFAW",
+                "tCCD_S",
+                "tCCD_L",
+                "tWTR_S",
+                "tWTR_L",
+                "tRTW",
+                "tRTW_L",
+                "tWR",
+                "tRTP",
+                "tREFI",
+                "tRFC",
+                "wq_depth",
+                "wq_high",
+                "wq_low",
+                "hb_ck_ps",
+                "hb_ca_clks",
+                "hb_lat_clks",
+                "hb_fixed_2x",
+                "hb_bus_bytes",
+                "hb_csm_ps",
+                "hb_rwr_ps"
+            ]
+        },
+        {
+            "name": "hyperram",
+            "label": "HyperRAM main memory",
+            "description": "Main memory using the current operational HyperRAM preset.",
+            "model": "hyperram",
+            "operational_key": "DRAM_KIND",
+            "operational_sources": [
+                {
+                    "path": "pipeline/common.py",
+                    "symbols": [
+                        "DRAM_KINDS",
+                        "use_dram"
+                    ],
+                    "role": "public selection validation and HES_DESIGN injection"
+                },
+                {
+                    "path": "targets/hetero/memsys.py",
+                    "symbols": [
+                        "DRAM_KIND",
+                        "DRAM_LATENCY",
+                        "DRAM_WIDTH",
+                        "L2",
+                        "make_main_memory"
+                    ],
+                    "role": "selection consumption and memory/cache behavioral consequences"
+                },
+                {
+                    "path": "targets/hetero/dram_presets.py",
+                    "symbols": [
+                        "KINDS",
+                        "PRESETS",
+                        "params"
+                    ],
+                    "role": "supported-kind registry and device preset expansion"
+                }
+            ],
+            "supports_overrides": true,
+            "override_fields": [
+                "kind",
+                "mapping",
+                "ctrl_ps",
+                "granule",
+                "channels",
+                "ranks",
+                "bankgroups",
+                "banks",
+                "rows",
+                "page_bytes",
+                "width_bits",
+                "burst_length",
+                "mtps",
+                "tCK",
+                "tRCD",
+                "tRP",
+                "tRPab",
+                "tRAS",
+                "tRC",
+                "tRL",
+                "tWL",
+                "tRRD_S",
+                "tRRD_L",
+                "tFAW",
+                "tCCD_S",
+                "tCCD_L",
+                "tWTR_S",
+                "tWTR_L",
+                "tRTW",
+                "tRTW_L",
+                "tWR",
+                "tRTP",
+                "tREFI",
+                "tRFC",
+                "wq_depth",
+                "wq_high",
+                "wq_low",
+                "hb_ck_ps",
+                "hb_ca_clks",
+                "hb_lat_clks",
+                "hb_fixed_2x",
+                "hb_bus_bytes",
+                "hb_csm_ps",
+                "hb_rwr_ps"
+            ]
+        }
+    ],
+    "presets": [
+        "m4ia_current"
+    ]
+}

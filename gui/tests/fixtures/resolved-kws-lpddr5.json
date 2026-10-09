@@ -1,0 +1,253 @@
+{
+    "schema_version": 2,
+    "resolved_fingerprint": "sha256:549d4b914d6e8617fb087cb5f4afdcad9be0aaf3c8d32982a093844c17cb589a",
+    "platform": "m4ia_current",
+    "hardware": {
+        "design": {
+            "HOST_VLEN": 4096,
+            "HOST_NB_LANES": 4,
+            "HOST_LANE_WIDTH": 8,
+            "SPATZ_VLEN": 512,
+            "SPATZ_NB_LANES": 4,
+            "SPATZ_LANE_WIDTH": 8,
+            "SNITCH_NB_CORE": 9,
+            "SPATZ_NB_CORE": 9,
+            "TCDM_SIZE": 131072,
+            "ICACHE_SIZE": 16384,
+            "ICACHE_WAYS": 4,
+            "DCACHE_SIZE": 32768,
+            "DCACHE_WAYS": 8,
+            "L2_SIZE": 524288,
+            "L2_WAYS": 8,
+            "LINE_SIZE": 64,
+            "NARROW_AXI_WIDTH": 8,
+            "WIDE_AXI_WIDTH": 64
+        },
+        "design_slug": "baseline",
+        "build_key": "host_vlen4096-spatz_vlen512",
+        "fingerprint": "sha256:f689f6269a7c1fe6ed899ec2990425777c08d6b90ea4a0ba152156470124b407"
+    },
+    "memory": {
+        "kind": "lpddr5",
+        "model": "dram",
+        "label": "LPDDR5 main memory",
+        "overrides": {},
+        "preset_fingerprint": "sha256:6fcc34dca84db158870733d39697bb886347fed616d5fd3b7912d598d9a17a3a",
+        "fingerprint": "sha256:b1a9f61b6075076bf8ce12e780a23be9298d9d841229ebe4f707d7fcd4f6e46a",
+        "operational_key": "DRAM_KIND",
+        "operational_sources": [
+            {
+                "path": "pipeline/common.py",
+                "symbols": [
+                    "DRAM_KINDS",
+                    "use_dram"
+                ],
+                "role": "public selection validation and HES_DESIGN injection"
+            },
+            {
+                "path": "targets/hetero/memsys.py",
+                "symbols": [
+                    "DRAM_KIND",
+                    "DRAM_LATENCY",
+                    "DRAM_WIDTH",
+                    "L2",
+                    "make_main_memory"
+                ],
+                "role": "selection consumption and memory/cache behavioral consequences"
+            },
+            {
+                "path": "targets/hetero/dram_presets.py",
+                "symbols": [
+                    "KINDS",
+                    "PRESETS",
+                    "params"
+                ],
+                "role": "supported-kind registry and device preset expansion"
+            }
+        ]
+    },
+    "resources": {
+        "schema_version": 1,
+        "platform": {
+            "host_modeled_cores": 1,
+            "cluster_modeled_cores": 18,
+            "total_modeled_cores": 19
+        },
+        "clusters": {
+            "snitch": {
+                "modeled_cores": 9,
+                "compute_cores": 8,
+                "control_dma_cores": 1,
+                "tcdm": {
+                    "capacity_bytes": 131072,
+                    "bank_count": 32,
+                    "superbanks": 4,
+                    "banks_per_superbank": 8,
+                    "bank_size_bytes": 4096
+                },
+                "memory_path": {
+                    "kernel_operand_staging_required": false,
+                    "cluster_dma_to_main_memory": "wide_axi"
+                }
+            },
+            "spatz": {
+                "modeled_cores": 9,
+                "compute_cores": 8,
+                "control_dma_cores": 1,
+                "tcdm": {
+                    "capacity_bytes": 131072,
+                    "bank_count": 32,
+                    "superbanks": 4,
+                    "banks_per_superbank": 8,
+                    "bank_size_bytes": 4096
+                },
+                "memory_path": {
+                    "kernel_operand_staging_required": true,
+                    "cluster_dma_to_main_memory": "wide_axi",
+                    "wide_axi_width_bytes_per_cycle": 64
+                },
+                "spatz_vector": {
+                    "lanes_per_modeled_core": 4,
+                    "lanes_per_compute_core": 4,
+                    "modeled_vpu_cores": 9,
+                    "useful_vpu_cores": 8,
+                    "modeled_vector_lanes": 36,
+                    "useful_vector_lanes": 32
+                }
+            }
+        }
+    },
+    "host_profile": "ara",
+    "simulator": {
+        "kind": "gvsoc",
+        "target": "hetero_ara"
+    },
+    "software": {},
+    "workload": {
+        "path": "ops/kws",
+        "content_digest": "sha256:fd8df0c40d78eafe98c8dd020b755cb1763a0d9fdf76d2b9d1279c8ed35091a6",
+        "workload_fingerprint": "sha256:a61b9fce03b81c4a37c9a444d7fe1185c421cb865e74b6cc299b4bf2f243216e",
+        "artifact_digests": [
+            {
+                "path": "inputs.npz",
+                "digest": "sha256:c8b469aa48fee1240c29e3ace19ad47221aef231c6069e110c4dedf10632d8ab"
+            },
+            {
+                "path": "network.onnx",
+                "digest": "sha256:fd8df0c40d78eafe98c8dd020b755cb1763a0d9fdf76d2b9d1279c8ed35091a6"
+            },
+            {
+                "path": "outputs.npz",
+                "digest": "sha256:7255d3557ecb436f46fce105ec35306455c0b1172b200609815de86666f7439e"
+            }
+        ],
+        "application": "kws",
+        "opset": [
+            {
+                "domain": "ai.onnx",
+                "version": 13
+            }
+        ],
+        "inputs": [
+            {
+                "name": "input",
+                "dtype": "float",
+                "shape": [
+                    1,
+                    1,
+                    32,
+                    13
+                ]
+            }
+        ],
+        "outputs": [
+            {
+                "name": "output",
+                "dtype": "float",
+                "shape": [
+                    1,
+                    10
+                ]
+            }
+        ],
+        "node_count": 11,
+        "op_counts": {
+            "Conv": 2,
+            "Gemm": 2,
+            "MaxPool": 2,
+            "Relu": 3,
+            "Reshape": 1,
+            "Softmax": 1
+        },
+        "initializer_count": 9,
+        "descriptors": {
+            "estimated_macs": {
+                "value": 72080,
+                "covered_ops": [
+                    "Conv",
+                    "Gemm",
+                    "MatMul"
+                ],
+                "known_nodes": [
+                    0,
+                    3,
+                    7,
+                    9
+                ],
+                "unknown_nodes": [],
+                "complete_for_covered_ops": true,
+                "method": "static-shape formulas; unsupported ops are not assigned zero"
+            },
+            "static_tensor_bytes": {
+                "known_bytes": 50024,
+                "known_tensors": 21,
+                "unknown_tensors": [],
+                "complete": true,
+                "method": "unique graph tensors counted once"
+            },
+            "working_set": {
+                "max_static_node_bytes": 21120,
+                "known_nodes": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10
+                ],
+                "unknown_nodes": [],
+                "method": "unique node inputs+outputs; not measured memory traffic"
+            },
+            "theoretical_arithmetic_intensity": {
+                "mac_per_byte": 1.440908363985287,
+                "method": "estimated covered-op MACs / unique static graph tensor bytes",
+                "is_measured": false
+            },
+            "initializer_sparsity": {
+                "zero_fraction": 0.0002134927412467976,
+                "zero_elements": 1,
+                "elements": 4684,
+                "scope": "ONNX initializers only; no claim of hardware sparsity support"
+            }
+        }
+    },
+    "mapping": {
+        "strategy": "measured_rate_greedy",
+        "implementation": "CostEngineMapper",
+        "factory": "make_mapper",
+        "cost_model": "measured_rates_plus_offload",
+        "pin": "spatz",
+        "pin_semantics": "compatible_node_preference_not_whole_graph",
+        "host_cost_profile": "ara"
+    },
+    "execution": {
+        "frontend": "snitch",
+        "serial": false,
+        "power": false
+    }
+}

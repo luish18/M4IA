@@ -1,0 +1,1008 @@
+{
+  "actual": {
+    "nodes": [
+      {
+        "engine": "spatz",
+        "implementation": {
+          "evidence": {
+            "sources": [
+              "completed_runtime_beacon",
+              "generated_dispatch_arguments",
+              "audited_compiled_dispatch_rules"
+            ],
+            "type": "deterministic_compiled_dispatch_and_runtime_evidence"
+          },
+          "fallback_from": null,
+          "fallback_reason": null,
+          "fallback_to": null,
+          "fallback_used": false,
+          "implementation_detail": null,
+          "implementation_id": "spatz.fp32.matmul_gemm.rvv_tuned"
+        },
+        "node": 0,
+        "op": "MatMul"
+      }
+    ]
+  },
+  "artifact_key": "baseline__mymatmul-70ab58e75c4b",
+  "artifacts": {
+    "result": {
+      "digest": "sha256:9d18a3cb244999154b15141415da5818ea23e535c37f183f14cd96bc9da848c2",
+      "path": "cells/baseline__mymatmul-70ab58e75c4b/result.json"
+    }
+  },
+  "calibration": {
+    "input_fingerprint": "sha256:a558a0128b97751c27dadfb850c25732d6ac529ec0bbe7e525421aaf2bbaa8f0",
+    "metadata_digest": "sha256:1579cc9ecb22029e1518cc19b9ac44dc6914ae07d18b5186c9ab355ddd943087",
+    "path": "designs/baseline__cva6__fixed-c0be3a9fbfe5/calibration.json",
+    "provenance": {
+      "calibration_sources": {
+        "digest": "sha256:6223da11cbc9f67b8120c5faa3998ad5095b8f6f8d32a53f905aa682acf21abd",
+        "manifest": [
+          {
+            "digest": "sha256:502283aab55e64da39582102629cb062f4bfe75e5b1fc079da04be01a0c1883d",
+            "path": "pipeline/build_mesh.py"
+          },
+          {
+            "digest": "sha256:d29406d2f759b2736146fc6a1da1372dbbff834d6473aa2a07b5e56e9fb22d1d",
+            "path": "pipeline/common.py"
+          },
+          {
+            "digest": "sha256:27a7f9aeafb76efe252c2b5445ab1e1f965164c76a8c5cb4e45b4277899ae067",
+            "path": "pipeline/gen_system_header.py"
+          },
+          {
+            "digest": "sha256:8711d44995986525b218d22d79371a01f7f8bc26e9598cbe177072cce70ffaa9",
+            "path": "pipeline/sweep/calibrate.py"
+          },
+          {
+            "digest": "sha256:c3e6623185e2faef717d9423c359059b4296730ca5513cdf75fcd03379aaa7c9",
+            "path": "pipeline/sweep/design.py"
+          },
+          {
+            "digest": "sha256:2ccc4c61abb20259c8dd36ddbdc9af82379f31b8a813a044014364a68fd3496b",
+            "path": "pipeline/sweep/run.py"
+          },
+          {
+            "digest": "sha256:a83c01701a0a8571c69ffb5383cb50a81d3e9037fe49380de75afffa51ea9f0b",
+            "path": "runtime/common/kernels/mfcc_fp32.c"
+          },
+          {
+            "digest": "sha256:69d551ab90389b8960b8d82ce9986c9346996c9c88d8dbaaf46576dab18b27cb",
+            "path": "runtime/common/mfcc.h"
+          },
+          {
+            "digest": "sha256:ca74f940917dfd31c91bd32fc14c9f4c81ce26551eb4e87e917314a969320913",
+            "path": "runtime/common/miniio.h"
+          },
+          {
+            "digest": "sha256:f03680a3c2593aefb0725b99aa362a99fd721a1f0ce5c824feac49ebb3f4d810",
+            "path": "runtime/common/semihost.h"
+          },
+          {
+            "digest": "sha256:c66c6ff8a2cc3c5b71025ebedbcaaad467198bc6f8dea8587d922d5fa19ce0a3",
+            "path": "runtime/common/syscalls.c"
+          },
+          {
+            "digest": "sha256:9d9c0255d354ef4581249d22ec0d666a4fc62978f216177e499cd5db73cb8a3f",
+            "path": "runtime/mesh/cluster_main.c"
+          },
+          {
+            "digest": "sha256:4005fae651a3e4fd4e3e1160954cee2cce78aa7c4f66cc31d967d96e27f39915",
+            "path": "runtime/mesh/crt0_cluster.S"
+          },
+          {
+            "digest": "sha256:a53e4df698a79535249f56298aeebff184319279137b9acc2c5763511e90fc2a",
+            "path": "runtime/mesh/crt0_host.S"
+          },
+          {
+            "digest": "sha256:ac502759c8098e7885870a938adc69cec90a5b0d6c66c24912ede06213b144fd",
+            "path": "runtime/mesh/hes_cluster.h"
+          },
+          {
+            "digest": "sha256:58484eba5cbef5f3773f224d11ebe8b5662b4c1dd3d5be8c4e476b7e092a88a7",
+            "path": "runtime/mesh/hes_dma.h"
+          },
+          {
+            "digest": "sha256:08a71ced5be4d7caf9aac7a4adb135780eed223c9ad6137cbdd3391c326555f1",
+            "path": "runtime/mesh/hes_host.c"
+          },
+          {
+            "digest": "sha256:e401fca87d5ccd64890111796d028683b5577b18438c06123e5d87d44f33c3c9",
+            "path": "runtime/mesh/hes_host.h"
+          },
+          {
+            "digest": "sha256:96da9dd32994464d432f5a75126dc17353f23e5dd458be2e8d899b75ee7c6a4d",
+            "path": "runtime/mesh/hes_job.h"
+          },
+          {
+            "digest": "sha256:1b144103fb5de8f2586e44af3e7729fa2df08e6a49fb1bc158cbaceb5b4314c2",
+            "path": "runtime/mesh/hes_mailbox.h"
+          },
+          {
+            "digest": "sha256:179db0356eb2c84657292e6dfdf98d8b68411939545bd374ace0b6186e623611",
+            "path": "runtime/snitch/kernels/conv2d_fp32_ssr.c"
+          },
+          {
+            "digest": "sha256:08b98ced6b2e0f21f7466f9322fde0d4140ad90f1ee082989c169ecef5c9e0a4",
+            "path": "runtime/snitch/kernels/gemm_fp32_ssr.c"
+          },
+          {
+            "digest": "sha256:4d02d41f49fee0b7ebe97de7f211756effd06415429c24f184a352f83ca76e66",
+            "path": "runtime/snitch/kernels/mfcc_fp32_ssr.c"
+          },
+          {
+            "digest": "sha256:8277021d395b5e8aeb99448d7deb6fedd6c649a43267404eba0682f6db9a789c",
+            "path": "runtime/snitch/snitch_ssr.h"
+          },
+          {
+            "digest": "sha256:47871afb157facda763252c8f70e8a53560f360a1fa8997dbeb661d017d66d72",
+            "path": "runtime/spatz/kernels/gemm_fp32_rvv.c"
+          },
+          {
+            "digest": "sha256:83aaf80e972c7b3e4cb59816384b07d170f5a3018fd567d4e7386c11f4577412",
+            "path": "runtime/tests/mesh_calib.c"
+          },
+          {
+            "digest": "sha256:43e88d3076c374d1920f6120a561a1df5db5a729ecec89cfad3069419cb8fd51",
+            "path": "targets/hetero/design.py"
+          },
+          {
+            "digest": "sha256:b0bfcad19c0bd961b1d9e7d6ebf39b18a9af5a26e51ff1bcb8cb69890074ea01",
+            "path": "targets/hetero/dram_presets.py"
+          },
+          {
+            "digest": "sha256:5519189108635ef514b1af723bf10ef27d8cc6cd4afe758031d3c4169c7df2a0",
+            "path": "targets/hetero/memsys.py"
+          },
+          {
+            "digest": "sha256:80523d82113571dc53cf2776fa61f0a5c37cff9f805af54f025c759746b01a55",
+            "path": "targets/hetero/soc.py"
+          },
+          {
+            "digest": "sha256:a96cca90d03e48212cf5a6b995ec2daadded0c10b3cf36edfa804473d478bc43",
+            "path": "targets/hetero/system.py"
+          },
+          {
+            "digest": "sha256:a9eea611dc215102dd566a8a908464a93846e96dff97d17c95ef90d3cdde2690",
+            "path": "targets/hetero/timing_cache.cpp"
+          },
+          {
+            "digest": "sha256:3ebcdab88ef7947555debbdc920c11e54cdca56a5291c29227fced8869eeaadc",
+            "path": "targets/hetero/timing_cache.py"
+          },
+          {
+            "digest": "sha256:660e0abf277572fa8fe3af7889ec6e890bb5b5a8e71529d1acf43e111e07a605",
+            "path": "targets/hetero_ara.py"
+          },
+          {
+            "digest": "sha256:b43c71dc277fbf5f3777921ef70842e9519a1310763459d72ce9b2c4e2b9d8dc",
+            "path": "targets/hetero_soc.py"
+          }
+        ]
+      },
+      "dependencies": {
+        "deeploy": {
+          "diff_digest": null,
+          "dirty": false,
+          "name": "deeploy",
+          "repository": "https://github.com/pulp-platform/Deeploy.git",
+          "revision": "aa268252165d96788fbe01f518f90f0d89f63c13",
+          "untracked_digest": null
+        },
+        "gvsoc": {
+          "diff_digest": "sha256:0318e71056a8ad5a53eb2831789ce493d53e175f61538ecf857cc59468ee138d",
+          "dirty": true,
+          "name": "gvsoc",
+          "repository": "https://github.com/gvsoc/gvsoc.git",
+          "revision": "d66f7587c4b7709ffcc805c960acc18f994614be",
+          "untracked_digest": null
+        },
+        "gvsoc_core": {
+          "diff_digest": "sha256:328f6b0269954d74b931dc7feef4fbd7dda14391b8dee902c2db7d67080870e0",
+          "dirty": true,
+          "name": "gvsoc-core",
+          "repository": "https://github.com/gvsoc/gvsoc-core.git",
+          "revision": "6ea97f10fc7142b1a7891261b8e916e172edf9f9",
+          "untracked_digest": null
+        }
+      },
+      "m4ia": {
+        "available": false,
+        "diff_digest": null,
+        "dirty": null,
+        "name": "m4ia",
+        "reason": "git-metadata-unavailable",
+        "repository": null,
+        "revision": null,
+        "untracked_digest": null
+      },
+      "patches": [
+        {
+          "digest": "sha256:9c130caeaaa2ca0b3ad84bfb445f2f39d572fe8f3df3d2c94bb9483fbefb5429",
+          "path": "deps/patches/gvsoc-core-cva6-load-latency.patch"
+        },
+        {
+          "digest": "sha256:994f287ac0ed772cab7989b46d8ccdc691e5ec5f926111a9239f0de83c5192bd",
+          "path": "deps/patches/gvsoc-core-rvv-extensions-and-fixes.patch"
+        },
+        {
+          "digest": "sha256:fafb2bb00cafd36a23b3807d4fee5eb979d61516501836ed8ffedc29a85a7414",
+          "path": "deps/patches/gvsoc-core-vector-host-ara.patch"
+        }
+      ],
+      "simulator_binary": {
+        "binary_digest": "sha256:0a46296524fa5490eef06811c2154927452cf35d502c8151d765f5bda43c239a",
+        "executable": "gvsoc"
+      },
+      "toolchain": {
+        "binary_digest": "sha256:f0aeb21d7c8aeac5dbbccbcdc2b3c80ecff615a1d7f7f3db3b507836b1c1c398",
+        "executable": "riscv-none-elf-gcc",
+        "version": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE."
+      }
+    }
+  },
+  "generated": {
+    "dram": "fixed",
+    "host": "cva6",
+    "nodes": [
+      {
+        "engine": "spatz",
+        "index": 0,
+        "kernel_arguments": {
+          "M": 32,
+          "N": 32,
+          "O": 32
+        },
+        "mapping_explanation": {
+          "engines": [
+            {
+              "candidate_after_pin": true,
+              "candidate_before_pin": true,
+              "compatible": true,
+              "cost": {
+                "evaluated": true,
+                "fixed_offload_cycles": 961,
+                "macs": 32768,
+                "per_byte_offload_cycles": 0.3113746537396122,
+                "rate_key": "MatMul",
+                "rate_kind": "operator_rate",
+                "rate_macs_per_cycle": 5.038905120713517,
+                "rate_row": {
+                  "key": "snitch",
+                  "kind": "engine"
+                },
+                "rate_table": {
+                  "kind": "external_rate_table",
+                  "path": "/workspace/work/fixture-sweep/out/designs/baseline__cva6__fixed-c0be3a9fbfe5/rates.json"
+                },
+                "total_estimated_cycles": 11290.171745152355,
+                "transfer_offload_cycles": 3826.1717451523546,
+                "working_set_bytes": 12288
+              },
+              "cost_used_for_selection": false,
+              "engine": "snitch",
+              "exclusion_reason": null,
+              "incompatibility_reason": null,
+              "pin_influence": "not_requested"
+            },
+            {
+              "candidate_after_pin": true,
+              "candidate_before_pin": true,
+              "compatible": true,
+              "cost": {
+                "evaluated": true,
+                "fixed_offload_cycles": 806,
+                "macs": 32768,
+                "per_byte_offload_cycles": 0.2915512465373961,
+                "rate_key": "MatMul",
+                "rate_kind": "operator_rate",
+                "rate_macs_per_cycle": 24.236686390532544,
+                "rate_row": {
+                  "key": "spatz",
+                  "kind": "engine"
+                },
+                "rate_table": {
+                  "kind": "external_rate_table",
+                  "path": "/workspace/work/fixture-sweep/out/designs/baseline__cva6__fixed-c0be3a9fbfe5/rates.json"
+                },
+                "total_estimated_cycles": 5740.581717451523,
+                "transfer_offload_cycles": 3582.581717451523,
+                "working_set_bytes": 12288
+              },
+              "cost_used_for_selection": true,
+              "engine": "spatz",
+              "exclusion_reason": null,
+              "incompatibility_reason": null,
+              "pin_influence": "not_requested"
+            },
+            {
+              "candidate_after_pin": true,
+              "candidate_before_pin": true,
+              "compatible": true,
+              "cost": {
+                "evaluated": true,
+                "fixed_offload_cycles": 0,
+                "macs": 32768,
+                "per_byte_offload_cycles": null,
+                "rate_key": "MatMul",
+                "rate_kind": "operator_rate",
+                "rate_macs_per_cycle": 0.06952684065351156,
+                "rate_row": {
+                  "key": "cva6",
+                  "kind": "host_profile"
+                },
+                "rate_table": {
+                  "kind": "external_rate_table",
+                  "path": "/workspace/work/fixture-sweep/out/designs/baseline__cva6__fixed-c0be3a9fbfe5/rates.json"
+                },
+                "total_estimated_cycles": 471300.00000000006,
+                "transfer_offload_cycles": null,
+                "working_set_bytes": null
+              },
+              "cost_used_for_selection": false,
+              "engine": "cva6",
+              "exclusion_reason": null,
+              "incompatibility_reason": null,
+              "pin_influence": "not_requested"
+            }
+          ],
+          "node": "",
+          "operator": "MatMul",
+          "pin_semantics": "compatible_node_preference_not_whole_graph",
+          "requested_pin": null,
+          "selected_engine": "spatz",
+          "selected_estimated_cost_cycles": 5740.581717451523,
+          "selection_rule": "minimum_safe_estimated_cost",
+          "strategy": "measured_rate_greedy"
+        },
+        "node": "",
+        "op": "MatMul"
+      }
+    ],
+    "pin": null
+  },
+  "kind": "m4ia.run",
+  "measured": {
+    "caches": [
+      {
+        "accesses": 4584,
+        "cache": "icache",
+        "dynamic_pj": 0.0,
+        "latency_cycles": 6998,
+        "leakage_pj": 0.0,
+        "misses": 62
+      },
+      {
+        "accesses": 3405,
+        "cache": "dcache",
+        "dynamic_pj": 0.0,
+        "latency_cycles": 63459,
+        "leakage_pj": 0.0,
+        "misses": 825
+      },
+      {
+        "accesses": 1002,
+        "cache": "l2",
+        "dynamic_pj": 0.0,
+        "latency_cycles": 50919,
+        "leakage_pj": 0.0,
+        "misses": 342
+      }
+    ],
+    "cycles": 8183,
+    "errors": 0,
+    "maxdiff": 0.0,
+    "nodes": [
+      {
+        "cycles": 6694,
+        "engine": "spatz",
+        "node": 0,
+        "op": "MatMul"
+      }
+    ],
+    "offload_failures": 0,
+    "outputs": 1024,
+    "per_engine_cycles": {
+      "spatz": 6694
+    },
+    "status": "ok",
+    "waits": [],
+    "wall_s": 1.5
+  },
+  "requested": {
+    "design_overrides": {},
+    "dram": null,
+    "dram_overrides": {},
+    "frontend": null,
+    "host": "cva6",
+    "images": 1,
+    "mapping_strategy": "measured_rate_greedy",
+    "model": "ops/mymatmul",
+    "pin": null,
+    "platform": "m4ia_current",
+    "power": false,
+    "serial": false
+  },
+  "resolved": {
+    "execution": {
+      "application": null,
+      "frontend": null,
+      "images": 1,
+      "pin": null,
+      "power": false,
+      "serial": false
+    },
+    "experiment": {
+      "execution": {
+        "frontend": null,
+        "power": false,
+        "serial": false
+      },
+      "hardware": {
+        "build_key": "host_vlen4096-spatz_vlen512",
+        "design": {
+          "DCACHE_SIZE": 32768,
+          "DCACHE_WAYS": 8,
+          "HOST_LANE_WIDTH": 8,
+          "HOST_NB_LANES": 4,
+          "HOST_VLEN": 4096,
+          "ICACHE_SIZE": 16384,
+          "ICACHE_WAYS": 4,
+          "L2_SIZE": 524288,
+          "L2_WAYS": 8,
+          "LINE_SIZE": 64,
+          "NARROW_AXI_WIDTH": 8,
+          "SNITCH_NB_CORE": 9,
+          "SPATZ_LANE_WIDTH": 8,
+          "SPATZ_NB_CORE": 9,
+          "SPATZ_NB_LANES": 4,
+          "SPATZ_VLEN": 512,
+          "TCDM_SIZE": 131072,
+          "WIDE_AXI_WIDTH": 64
+        },
+        "design_slug": "baseline",
+        "fingerprint": "sha256:f689f6269a7c1fe6ed899ec2990425777c08d6b90ea4a0ba152156470124b407"
+      },
+      "host_profile": "cva6",
+      "mapping": {
+        "cost_model": "measured_rates_plus_offload",
+        "factory": "make_mapper",
+        "host_cost_profile": "cva6",
+        "implementation": "CostEngineMapper",
+        "pin": null,
+        "pin_semantics": "compatible_node_preference_not_whole_graph",
+        "strategy": "measured_rate_greedy"
+      },
+      "memory": {
+        "fingerprint": "sha256:8094adeeeea69200b9b782e1b4ae3c9151dd604b88befd1b39a5aa8bbc24d7f4",
+        "kind": "fixed",
+        "label": "Fixed main memory",
+        "model": "fixed_latency",
+        "operational_key": "DRAM_KIND",
+        "operational_sources": [
+          {
+            "path": "pipeline/common.py",
+            "role": "public selection validation and HES_DESIGN injection",
+            "symbols": [
+              "DRAM_KINDS",
+              "use_dram"
+            ]
+          },
+          {
+            "path": "targets/hetero/memsys.py",
+            "role": "selection consumption and memory/cache behavioral consequences",
+            "symbols": [
+              "DRAM_KIND",
+              "DRAM_LATENCY",
+              "DRAM_WIDTH",
+              "L2",
+              "make_main_memory"
+            ]
+          },
+          {
+            "path": "targets/hetero/dram_presets.py",
+            "role": "supported-kind registry",
+            "symbols": [
+              "KINDS"
+            ]
+          }
+        ],
+        "overrides": {},
+        "preset_fingerprint": null
+      },
+      "platform": "m4ia_current",
+      "resolved_fingerprint": "sha256:b87fd7fd9dee739633f60cb2cb3cd9ac38660e2f2307499dfbcdfb5224f080a6",
+      "resources": {
+        "clusters": {
+          "snitch": {
+            "compute_cores": 8,
+            "control_dma_cores": 1,
+            "memory_path": {
+              "cluster_dma_to_main_memory": "wide_axi",
+              "kernel_operand_staging_required": false
+            },
+            "modeled_cores": 9,
+            "tcdm": {
+              "bank_count": 32,
+              "bank_size_bytes": 4096,
+              "banks_per_superbank": 8,
+              "capacity_bytes": 131072,
+              "superbanks": 4
+            }
+          },
+          "spatz": {
+            "compute_cores": 8,
+            "control_dma_cores": 1,
+            "memory_path": {
+              "cluster_dma_to_main_memory": "wide_axi",
+              "kernel_operand_staging_required": true,
+              "wide_axi_width_bytes_per_cycle": 64
+            },
+            "modeled_cores": 9,
+            "spatz_vector": {
+              "lanes_per_compute_core": 4,
+              "lanes_per_modeled_core": 4,
+              "modeled_vector_lanes": 36,
+              "modeled_vpu_cores": 9,
+              "useful_vector_lanes": 32,
+              "useful_vpu_cores": 8
+            },
+            "tcdm": {
+              "bank_count": 32,
+              "bank_size_bytes": 4096,
+              "banks_per_superbank": 8,
+              "capacity_bytes": 131072,
+              "superbanks": 4
+            }
+          }
+        },
+        "platform": {
+          "cluster_modeled_cores": 18,
+          "host_modeled_cores": 1,
+          "total_modeled_cores": 19
+        },
+        "schema_version": 1
+      },
+      "schema_version": 2,
+      "simulator": {
+        "kind": "gvsoc",
+        "target": "hetero_soc"
+      },
+      "software": {},
+      "workload": {
+        "application": null,
+        "artifact_digests": [
+          {
+            "digest": "sha256:00a70ca628c620c1c22696dc55dfd5875cae00bed31cdd18325797b9b9cae225",
+            "path": "inputs.npz"
+          },
+          {
+            "digest": "sha256:5ff178e5bd34412523db5ef3fae94f0d9c32da0b58bb96876059233d3818c524",
+            "path": "network.onnx"
+          },
+          {
+            "digest": "sha256:a9f266945fad4f9022509f6153e58aa42962ca744df27aa3b723aff91f5c2e3a",
+            "path": "outputs.npz"
+          }
+        ],
+        "content_digest": "sha256:5ff178e5bd34412523db5ef3fae94f0d9c32da0b58bb96876059233d3818c524",
+        "descriptors": {
+          "estimated_macs": {
+            "complete_for_covered_ops": true,
+            "covered_ops": [
+              "Conv",
+              "Gemm",
+              "MatMul"
+            ],
+            "known_nodes": [
+              0
+            ],
+            "method": "static-shape formulas; unsupported ops are not assigned zero",
+            "unknown_nodes": [],
+            "value": 32768
+          },
+          "initializer_sparsity": {
+            "elements": 1024,
+            "scope": "ONNX initializers only; no claim of hardware sparsity support",
+            "zero_elements": 0,
+            "zero_fraction": 0.0
+          },
+          "static_tensor_bytes": {
+            "complete": true,
+            "known_bytes": 12288,
+            "known_tensors": 3,
+            "method": "unique graph tensors counted once",
+            "unknown_tensors": []
+          },
+          "theoretical_arithmetic_intensity": {
+            "is_measured": false,
+            "mac_per_byte": 2.6666666666666665,
+            "method": "estimated covered-op MACs / unique static graph tensor bytes"
+          },
+          "working_set": {
+            "known_nodes": [
+              0
+            ],
+            "max_static_node_bytes": 12288,
+            "method": "unique node inputs+outputs; not measured memory traffic",
+            "unknown_nodes": []
+          }
+        },
+        "initializer_count": 1,
+        "inputs": [
+          {
+            "dtype": "float",
+            "name": "X",
+            "shape": [
+              32,
+              32
+            ]
+          }
+        ],
+        "node_count": 1,
+        "op_counts": {
+          "MatMul": 1
+        },
+        "opset": [
+          {
+            "domain": "ai.onnx",
+            "version": 13
+          }
+        ],
+        "outputs": [
+          {
+            "dtype": "float",
+            "name": "Y",
+            "shape": [
+              32,
+              32
+            ]
+          }
+        ],
+        "path": "ops/mymatmul",
+        "workload_fingerprint": "sha256:2f84dbde37f5f0f528009858de6402cf6046f59c565a0980c59b0fa1a7b06a20"
+      }
+    },
+    "machine": {
+      "identity": {
+        "design_fingerprint": "sha256:f689f6269a7c1fe6ed899ec2990425777c08d6b90ea4a0ba152156470124b407",
+        "design_slug": "baseline",
+        "host_profile": "cva6",
+        "kind": "m4ia.machine",
+        "memory": {
+          "fingerprint": "sha256:8094adeeeea69200b9b782e1b4ae3c9151dd604b88befd1b39a5aa8bbc24d7f4",
+          "kind": "fixed",
+          "overrides": {},
+          "preset_fingerprint": null
+        },
+        "platform": "m4ia_current",
+        "schema_version": 1
+      },
+      "machine_fingerprint": "sha256:c0be3a9fbfe5b8e93c15a5c5d673562a241e9d9d5c66f7a5690b3ac5f935e3b6",
+      "machine_key": "baseline__cva6__fixed-c0be3a9fbfe5"
+    }
+  },
+  "run_fingerprint": "sha256:179349a9f488ee09e2952910c65ec2ab557a62daeabd3cc3a968f546e3633723",
+  "run_input": {
+    "calibration_input_fingerprint": "sha256:a558a0128b97751c27dadfb850c25732d6ac529ec0bbe7e525421aaf2bbaa8f0",
+    "execution_controls": {
+      "application": null,
+      "frontend": null,
+      "images": 1,
+      "pin": null,
+      "power": false,
+      "serial": false
+    },
+    "kind": "m4ia.run_input",
+    "machine_fingerprint": "sha256:c0be3a9fbfe5b8e93c15a5c5d673562a241e9d9d5c66f7a5690b3ac5f935e3b6",
+    "resolved_experiment_fingerprint": "sha256:b87fd7fd9dee739633f60cb2cb3cd9ac38660e2f2307499dfbcdfb5224f080a6",
+    "run_source_set_digest": "sha256:72b2ff1fe52de805529716c45d3fcec2299eaca424a5dbc117c6b4d2d3bc7d38",
+    "schema_version": 1
+  },
+  "run_input_fingerprint": "sha256:70ab58e75c4bc7da572c1e128e7e5e4ef18c17be7b0ebd01664879f7438d9b95",
+  "run_provenance": {
+    "execution_environment": {
+      "dependencies": {
+        "deeploy": {
+          "diff_digest": null,
+          "dirty": false,
+          "name": "deeploy",
+          "repository": "https://github.com/pulp-platform/Deeploy.git",
+          "revision": "aa268252165d96788fbe01f518f90f0d89f63c13",
+          "untracked_digest": null
+        },
+        "gvsoc": {
+          "diff_digest": "sha256:0318e71056a8ad5a53eb2831789ce493d53e175f61538ecf857cc59468ee138d",
+          "dirty": true,
+          "name": "gvsoc",
+          "repository": "https://github.com/gvsoc/gvsoc.git",
+          "revision": "d66f7587c4b7709ffcc805c960acc18f994614be",
+          "untracked_digest": null
+        },
+        "gvsoc_core": {
+          "diff_digest": "sha256:328f6b0269954d74b931dc7feef4fbd7dda14391b8dee902c2db7d67080870e0",
+          "dirty": true,
+          "name": "gvsoc-core",
+          "repository": "https://github.com/gvsoc/gvsoc-core.git",
+          "revision": "6ea97f10fc7142b1a7891261b8e916e172edf9f9",
+          "untracked_digest": null
+        }
+      },
+      "patches": [
+        {
+          "digest": "sha256:9c130caeaaa2ca0b3ad84bfb445f2f39d572fe8f3df3d2c94bb9483fbefb5429",
+          "path": "deps/patches/gvsoc-core-cva6-load-latency.patch"
+        },
+        {
+          "digest": "sha256:994f287ac0ed772cab7989b46d8ccdc691e5ec5f926111a9239f0de83c5192bd",
+          "path": "deps/patches/gvsoc-core-rvv-extensions-and-fixes.patch"
+        },
+        {
+          "digest": "sha256:fafb2bb00cafd36a23b3807d4fee5eb979d61516501836ed8ffedc29a85a7414",
+          "path": "deps/patches/gvsoc-core-vector-host-ara.patch"
+        }
+      ],
+      "simulator_binary": {
+        "binary_digest": "sha256:0a46296524fa5490eef06811c2154927452cf35d502c8151d765f5bda43c239a",
+        "executable": "gvsoc"
+      },
+      "toolchain": {
+        "binary_digest": "sha256:f0aeb21d7c8aeac5dbbccbcdc2b3c80ecff615a1d7f7f3db3b507836b1c1c398",
+        "executable": "riscv-none-elf-gcc",
+        "version": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE."
+      }
+    },
+    "m4ia": {
+      "available": false,
+      "diff_digest": null,
+      "dirty": null,
+      "name": "m4ia",
+      "reason": "git-metadata-unavailable",
+      "repository": null,
+      "revision": null,
+      "untracked_digest": null
+    },
+    "source_set": {
+      "digest": "sha256:72b2ff1fe52de805529716c45d3fcec2299eaca424a5dbc117c6b4d2d3bc7d38",
+      "include_sweep": true,
+      "manifest": [
+        {
+          "digest": "sha256:502283aab55e64da39582102629cb062f4bfe75e5b1fc079da04be01a0c1883d",
+          "path": "pipeline/build_mesh.py"
+        },
+        {
+          "digest": "sha256:d29406d2f759b2736146fc6a1da1372dbbff834d6473aa2a07b5e56e9fb22d1d",
+          "path": "pipeline/common.py"
+        },
+        {
+          "digest": "sha256:d609e2afe5619f5420083fe1b0bc00b205e5a2dc3e35d097004c011fc00b7679",
+          "path": "pipeline/experiment/actual_implementation.py"
+        },
+        {
+          "digest": "sha256:2db80aedd1aedaa583d7956982373ba312574b4fe880b130294f5688d3511dd9",
+          "path": "pipeline/experiment/artifact_identity.py"
+        },
+        {
+          "digest": "sha256:0a10fca4833d99c0e65487521551e55755b9a4683103ed50e1dcdc6d224d70dd",
+          "path": "pipeline/experiment/discovery.py"
+        },
+        {
+          "digest": "sha256:bac94dc57bbf6855d08c868ca14961402b3aa4e18f1d2d5492023308e5657209",
+          "path": "pipeline/experiment/engine_catalog.py"
+        },
+        {
+          "digest": "sha256:ba8da441ba2c10ba646737be09578db3d5443ed8b76e2bb01e287b6aea1f93d6",
+          "path": "pipeline/experiment/fingerprint.py"
+        },
+        {
+          "digest": "sha256:216176c118c7d9eba975762ff742fb958ba3ca0ffc3bad95ad5562bafb676e01",
+          "path": "pipeline/experiment/generated_arguments.py"
+        },
+        {
+          "digest": "sha256:8d17bced0343e3535d1f993a9fef2d9c4ecc1cf1c6fe40a9990d0defc13f1988",
+          "path": "pipeline/experiment/host_profile_catalog.py"
+        },
+        {
+          "digest": "sha256:693dd4e34e4cc8c462cc79c2a36adb5559d7efaf8dcb878fb2f1fd8801d47663",
+          "path": "pipeline/experiment/mapping_strategy_catalog.py"
+        },
+        {
+          "digest": "sha256:bf2753f46b32d45f50663bd3a0471b084ce8a00869d3345be4802d7e008713af",
+          "path": "pipeline/experiment/matmul_gemm_implementation.py"
+        },
+        {
+          "digest": "sha256:0b0528b718025fcb0d0cf16c8f78a4438391ca4f2af8d9905cee15c72a1c0e0c",
+          "path": "pipeline/experiment/memory_catalog.py"
+        },
+        {
+          "digest": "sha256:33ed34e19bf0e9d51808286d1745287e5d72ed9aa052dc47de314db4ad7a82a2",
+          "path": "pipeline/experiment/resolve.py"
+        },
+        {
+          "digest": "sha256:e2ae542fbf3a1e2841cd848f0bc5e6dcd1003d0ca8478e21be2c83f431e39613",
+          "path": "pipeline/experiment/schema.py"
+        },
+        {
+          "digest": "sha256:0328395dac787d2bc22e0465cde69d8031acfc4733f3efc21e579ed3c030a715",
+          "path": "pipeline/experiment/workload.py"
+        },
+        {
+          "digest": "sha256:27a7f9aeafb76efe252c2b5445ab1e1f965164c76a8c5cb4e45b4277899ae067",
+          "path": "pipeline/gen_system_header.py"
+        },
+        {
+          "digest": "sha256:fd8b5742edbaadee8aa37d31d5dff4e29bdca4da05dd9884ed62fb65c310b342",
+          "path": "pipeline/hetero_platform/__init__.py"
+        },
+        {
+          "digest": "sha256:e96a494255b2525018e30fa7a49e14bf45a8b0b5ec32a0fee9679c5a5229211f",
+          "path": "pipeline/hetero_platform/deployment.py"
+        },
+        {
+          "digest": "sha256:4eb73a270ad21b9764a8044802ff0cd5177abb45517277abac9ea16afb141367",
+          "path": "pipeline/hetero_platform/engines.py"
+        },
+        {
+          "digest": "sha256:a502c78ed7197bb134934cc64cc4bc8b91c76e37df770c13ab70cc4c5ebaeaa0",
+          "path": "pipeline/hetero_platform/generate.py"
+        },
+        {
+          "digest": "sha256:f6793a4ed23807a2f2b38618d722b3027fd1d6b17ed550aa37699de7974a6b91",
+          "path": "pipeline/hetero_platform/mapper.py"
+        },
+        {
+          "digest": "sha256:0a6849fc0bbd2b0b8c7216b075865d3643d819c3ddbc6c97f47026c86a2e6473",
+          "path": "pipeline/hetero_platform/progress.py"
+        },
+        {
+          "digest": "sha256:cc61cc769f010d8da1dd3bebbb6a15c21165ac219168e4a67f11f6d301330511",
+          "path": "pipeline/hetero_platform/templates.py"
+        },
+        {
+          "digest": "sha256:ceb00356c7cbd93c5fee765f1f3ce42f78cb76e5a9461696b62ac2ea76426b46",
+          "path": "pipeline/run_hetero.py"
+        },
+        {
+          "digest": "sha256:8711d44995986525b218d22d79371a01f7f8bc26e9598cbe177072cce70ffaa9",
+          "path": "pipeline/sweep/calibrate.py"
+        },
+        {
+          "digest": "sha256:c3e6623185e2faef717d9423c359059b4296730ca5513cdf75fcd03379aaa7c9",
+          "path": "pipeline/sweep/design.py"
+        },
+        {
+          "digest": "sha256:2ccc4c61abb20259c8dd36ddbdc9af82379f31b8a813a044014364a68fd3496b",
+          "path": "pipeline/sweep/run.py"
+        },
+        {
+          "digest": "sha256:4cb803a9d6d99de0c80c0d6f7676fbd75bf26f09450fe7f28961b2d1cf78292c",
+          "path": "runtime/common/bench.h"
+        },
+        {
+          "digest": "sha256:a83c01701a0a8571c69ffb5383cb50a81d3e9037fe49380de75afffa51ea9f0b",
+          "path": "runtime/common/kernels/mfcc_fp32.c"
+        },
+        {
+          "digest": "sha256:69d551ab90389b8960b8d82ce9986c9346996c9c88d8dbaaf46576dab18b27cb",
+          "path": "runtime/common/mfcc.h"
+        },
+        {
+          "digest": "sha256:ca74f940917dfd31c91bd32fc14c9f4c81ce26551eb4e87e917314a969320913",
+          "path": "runtime/common/miniio.h"
+        },
+        {
+          "digest": "sha256:f03680a3c2593aefb0725b99aa362a99fd721a1f0ce5c824feac49ebb3f4d810",
+          "path": "runtime/common/semihost.h"
+        },
+        {
+          "digest": "sha256:c66c6ff8a2cc3c5b71025ebedbcaaad467198bc6f8dea8587d922d5fa19ce0a3",
+          "path": "runtime/common/syscalls.c"
+        },
+        {
+          "digest": "sha256:9d9c0255d354ef4581249d22ec0d666a4fc62978f216177e499cd5db73cb8a3f",
+          "path": "runtime/mesh/cluster_main.c"
+        },
+        {
+          "digest": "sha256:4005fae651a3e4fd4e3e1160954cee2cce78aa7c4f66cc31d967d96e27f39915",
+          "path": "runtime/mesh/crt0_cluster.S"
+        },
+        {
+          "digest": "sha256:a53e4df698a79535249f56298aeebff184319279137b9acc2c5763511e90fc2a",
+          "path": "runtime/mesh/crt0_host.S"
+        },
+        {
+          "digest": "sha256:ac502759c8098e7885870a938adc69cec90a5b0d6c66c24912ede06213b144fd",
+          "path": "runtime/mesh/hes_cluster.h"
+        },
+        {
+          "digest": "sha256:58484eba5cbef5f3773f224d11ebe8b5662b4c1dd3d5be8c4e476b7e092a88a7",
+          "path": "runtime/mesh/hes_dma.h"
+        },
+        {
+          "digest": "sha256:08a71ced5be4d7caf9aac7a4adb135780eed223c9ad6137cbdd3391c326555f1",
+          "path": "runtime/mesh/hes_host.c"
+        },
+        {
+          "digest": "sha256:e401fca87d5ccd64890111796d028683b5577b18438c06123e5d87d44f33c3c9",
+          "path": "runtime/mesh/hes_host.h"
+        },
+        {
+          "digest": "sha256:96da9dd32994464d432f5a75126dc17353f23e5dd458be2e8d899b75ee7c6a4d",
+          "path": "runtime/mesh/hes_job.h"
+        },
+        {
+          "digest": "sha256:1b144103fb5de8f2586e44af3e7729fa2df08e6a49fb1bc158cbaceb5b4314c2",
+          "path": "runtime/mesh/hes_mailbox.h"
+        },
+        {
+          "digest": "sha256:5843b88f70a4b07967ee347da0653faf612cadd408f43dea5e82bbf6f5ba3cdb",
+          "path": "runtime/mesh/host_main.c"
+        },
+        {
+          "digest": "sha256:179db0356eb2c84657292e6dfdf98d8b68411939545bd374ace0b6186e623611",
+          "path": "runtime/snitch/kernels/conv2d_fp32_ssr.c"
+        },
+        {
+          "digest": "sha256:08b98ced6b2e0f21f7466f9322fde0d4140ad90f1ee082989c169ecef5c9e0a4",
+          "path": "runtime/snitch/kernels/gemm_fp32_ssr.c"
+        },
+        {
+          "digest": "sha256:4d02d41f49fee0b7ebe97de7f211756effd06415429c24f184a352f83ca76e66",
+          "path": "runtime/snitch/kernels/mfcc_fp32_ssr.c"
+        },
+        {
+          "digest": "sha256:8277021d395b5e8aeb99448d7deb6fedd6c649a43267404eba0682f6db9a789c",
+          "path": "runtime/snitch/snitch_ssr.h"
+        },
+        {
+          "digest": "sha256:47871afb157facda763252c8f70e8a53560f360a1fa8997dbeb661d017d66d72",
+          "path": "runtime/spatz/kernels/gemm_fp32_rvv.c"
+        },
+        {
+          "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "path": "targets/hetero/__init__.py"
+        },
+        {
+          "digest": "sha256:43e88d3076c374d1920f6120a561a1df5db5a729ecec89cfad3069419cb8fd51",
+          "path": "targets/hetero/design.py"
+        },
+        {
+          "digest": "sha256:b0bfcad19c0bd961b1d9e7d6ebf39b18a9af5a26e51ff1bcb8cb69890074ea01",
+          "path": "targets/hetero/dram_presets.py"
+        },
+        {
+          "digest": "sha256:5519189108635ef514b1af723bf10ef27d8cc6cd4afe758031d3c4169c7df2a0",
+          "path": "targets/hetero/memsys.py"
+        },
+        {
+          "digest": "sha256:9b055afb55f3c96fcbb3e76b939db15af24237211838e2fa1086c9fbc7dec0ed",
+          "path": "targets/hetero/power.py"
+        },
+        {
+          "digest": "sha256:80523d82113571dc53cf2776fa61f0a5c37cff9f805af54f025c759746b01a55",
+          "path": "targets/hetero/soc.py"
+        },
+        {
+          "digest": "sha256:a96cca90d03e48212cf5a6b995ec2daadded0c10b3cf36edfa804473d478bc43",
+          "path": "targets/hetero/system.py"
+        },
+        {
+          "digest": "sha256:a9eea611dc215102dd566a8a908464a93846e96dff97d17c95ef90d3cdde2690",
+          "path": "targets/hetero/timing_cache.cpp"
+        },
+        {
+          "digest": "sha256:3ebcdab88ef7947555debbdc920c11e54cdca56a5291c29227fced8869eeaadc",
+          "path": "targets/hetero/timing_cache.py"
+        },
+        {
+          "digest": "sha256:b43c71dc277fbf5f3777921ef70842e9519a1310763459d72ce9b2c4e2b9d8dc",
+          "path": "targets/hetero_soc.py"
+        }
+      ],
+      "memory_kind": "fixed",
+      "simulator_target": "hetero_soc"
+    }
+  },
+  "schema_version": 1
+}
