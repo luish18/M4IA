@@ -235,10 +235,17 @@ The tabs:
 | tab | what it does |
 |-----|--------------|
 | Models & ops | list `ops/` (and Deeploy's kernel tests), inspect a graph's inputs, outputs and node types, import an `.onnx` with an `inputs.npz` or random inputs, regenerate `ops/mnist` and `ops/kws` |
-| Compare cores | run ops on any of cva6 / snitch / spatz / ara standalone (`run.py`), or on the SoC mapped or pinned (`run_hetero.py`), with the main memory of your choice (`--dram`); bar charts, speedups, cache counters, node mapping |
-| Sweep | pick models, host, samples and main memory; set the parameter space as one-factor-at-a-time, full factorial or an explicit list of points; check the points against `design.py` before launching; save/load the spec |
-| Sweep results | live progress, the sensitivity table and Pareto front from `report.py`, every cell, CSV export |
+| Compare cores | run ops on any of cva6 / snitch / spatz / ara standalone (`run.py`), or on the SoC mapped or pinned (`run_hetero.py`), with the main memory of your choice (`--dram`); SoC runs are resolved first and shown as a preview; bar charts, speedups, cache counters, and per-node evidence (placement, mapping explanation, actual implementation, cycles) |
+| Sweep | pick models, host, samples and main memory; set the parameter space as one-factor-at-a-time, full factorial or an explicit list of points; check the points against `design.py` and resolve the baseline before launching; save/load the spec |
+| Sweep results | live progress, the sensitivity table and Pareto front from `report.py`, every cell with its memory and calibration status, each cell's `m4ia.run` manifest layer by layer, CSV export |
 | Jobs | the queue, live logs, cancel, and the exact command of each job |
+
+The memory, host and pin choices, and the knob labels and units, come from
+`gui_query.py experiment-schema`. Before an SoC run starts, its request goes
+through `gui_query.py resolve-experiment`. A request the pipeline refuses is
+not run, and the error is shown. The resolved experiment is kept next to the
+result as `<run>.resolved.json`, with the request as `<run>.request.json`.
+See [GUI integration](docs/gui-integration.md).
 
 GUI output goes under `work/gui/` (runs, sweeps), never over the committed
 `results/`. The flags it relies on are ordinary CLI flags, usable by hand:

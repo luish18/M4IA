@@ -17,10 +17,11 @@ Rust GUI
 
 `backend::capture()` runs quick JSON queries and extracts the bridge's JSON
 `error` value when a command fails. `gui/src/ui/mod.rs::query()` deserializes a
-successful response. The GUI currently uses `env`, `ops`, `inspect`, `knobs`,
-and `validate`.
+successful response, and `ui::resolve()` / `resolve_all()` write a request
+under `work/` and resolve it. The GUI uses `env`, `ops`, `inspect`, `knobs`,
+`validate`, `experiment-schema` and `resolve-experiment`.
 
-The accepted Foundation added two query-only commands:
+The Foundation's two commands are query-only:
 
 ```text
 experiment-schema
@@ -64,43 +65,70 @@ operational overrides change resolved identity. Invalid requests return a
 machine-readable JSON error; the GUI should display that error rather than
 silently reinterpret the request.
 
-## Current memory path
+## Current memory, host and placement path
 
-The current Rust UI still has a `DramChoice` enum for:
+`gui/src/experiment.rs` holds the Rust types for `experiment-schema` and
+`resolve-experiment`. The app loads the schema next to `knobs`.
 
-```text
-fixed  lpddr4  lpddr4x  lpddr5  hyperram
-```
+The memory pick lists (Compare, Sweep), the host pick lists and the SoC pin
+choices are built from these rows: `main_memories`, `host_profiles` and
+`engines` (`ui/common.rs::memory_choices`, `host_choices`, `engine_choices`).
+Selections are stored as the pipeline's spelling (`String`), so saved
+`SweepSpec` files are unchanged. If the schema cannot be read, for example
+from an image older than the Foundation, only `fixed` / `cva6` / `mapped` are
+offered and the status line says why.
 
-Compare sends the selected value directly to `run.py` or `run_hetero.py` as
-`--dram`, including explicit `--dram fixed`. Making fixed explicit is
-important for native GUI jobs: child processes inherit the environment, and an
-omitted runner value otherwise preserves a pre-existing `HES_DESIGN` memory.
+Compare still sends `--dram` explicitly, including `--dram fixed`. A native
+child inherits the environment, and an omitted value would otherwise keep a
+pre-existing `HES_DESIGN` memory. Sweep omits a fixed flag; the sweep resolver
+canonicalizes it and writes `DRAM_KIND=fixed` into each machine design.
 
-Sweep stores `SweepSpec.dram`. Existing saved specs without the field load as
-fixed through Serde defaults. For compatibility, the current sweep command may
-omit a fixed flag; the accepted sweep resolver canonicalizes it to fixed and
-writes explicit `DRAM_KIND=fixed` into each machine design. Non-fixed values
-are passed through `--dram`.
+## Resolved preview
 
-This path is behaviorally aligned today, but `DramChoice` remains duplicated
-presentation state and should be migrated to discovery later.
+`ExperimentRequest::new(...).execution(app, frontend, serial, power)` builds
+requests the same way `sweep/run.py::resolve_cell_experiment` does. A
+front-end and `serial` are sent only for KWS, and the front-end defaults to
+Snitch. As a result, a preview resolves to the fingerprint the driver later
+records. The Docker app test checks this against a real manifest.
 
-## Current result parsing
+- **Compare, SoC mode.** *Preview* resolves one request per op and placement.
+  *Run* resolves first and queues jobs only if every request resolves. A
+  backend error is shown verbatim and nothing runs. The only exception is a
+  bridge that predates `resolve-experiment` (argparse "invalid choice"): the
+  jobs then run with a warning, as before. Requests and resolved experiments
+  are written next to each result (`<tag>.request.json`,
+  `<tag>.resolved.json`), and the result card shows the resolved fingerprint.
+- **Compare, isolated mode.** `run.py` is not an `ExperimentRequest`, so these
+  jobs launch directly.
+- **Sweep.** *Resolve baseline* resolves the baseline design for each selected
+  model. Per-design identity still comes from `validate`. Launch is not gated
+  on it, because the driver resolves every cell and records failures as rows.
 
-The Rust models parse the established `result.json` and sweep row fields.
-Serde ignores additive Foundation fields, so current displays remain backward
-compatible.
+## Current result and manifest parsing
 
-The GUI does not yet have typed models/views for:
+`model.rs` parses the Foundation fields additively. Every new field is
+optional, so committed and older results still load.
 
-- mapping explanations and generated arguments;
-- explicit mapping memory;
-- sweep artifact/machine/run fingerprints;
-- `m4ia.run` manifests;
-- requested/resolved/generated/actual/measured views.
+- `mapping.nodes[]`: `index`, `kernel_arguments` and `mapping_explanation`.
+  This is the generated layer.
+- `result.nodes[]`: `cycles`, which is measured, and `implementation`, which
+  is actual.
+- Sweep rows: `dram_kind`, `machine_key`, `artifact_key`,
+  `run_input_fingerprint`, `run_fingerprint`, `manifest` and
+  `calibration_cache`.
+- `RunManifest`: the five layers of an `m4ia.run` manifest, plus its
+  calibration, artifact and run-source identity.
 
-These are frontend implementation tasks, not missing backend contracts.
+`ui/evidence.rs` joins generated and completed nodes on the generated `index`,
+the same key `annotate_completed_nodes` uses. It shows them in separate
+columns: generated engine and selection rule; actual implementation and
+fallback; measured cycles. Each node can expand into the mapper's per-engine
+explanation. The table never infers an implementation from a placement.
+
+Compare's "node mapping" toggle shows this table for SoC results. Sweep
+results have a *details* button per cell, which opens the cell's manifest
+layer by layer: requested, resolved (with the machine), generated, actual and
+measured, then identity.
 
 ## Target continuation path
 
@@ -116,51 +144,35 @@ experiment-schema
     -> result + m4ia.run manifest views
 ```
 
-### Stage 1: discover memory
+### Stages 1–3 (done)
 
-Replace the hand-maintained memory choice list and quantitative display labels
-with `main_memories` rows from `experiment-schema`. Preserve runner command
-compatibility and explicit fixed selection.
-
-### Stage 2: resolved preview
-
-Serialize current user controls into an `ExperimentRequest`, resolve it, and
-show workload, host, numeric design, memory, resources, mapping strategy, and
-resolved fingerprint before launch.
-
-### Stage 3: consume manifests
-
-Add typed parsing for:
-
-```text
-requested -> user intent
-resolved  -> canonical configuration/machine
-generated -> placement/explanation/dispatch arguments
-actual    -> completed execution/implementation evidence
-measured  -> status/cycles/counters/correctness
-```
-
-Also expose calibration and artifact digests/fingerprints without recomputing
-their semantics in Rust.
+- **Memory, host and engine choices.** These come from discovery.
+- **Resolved preview.** Shown before launch, and it gates SoC launches in
+  Compare.
+- **Typed views.** The generated, actual and measured evidence, and sweep
+  manifests, each have their own view.
 
 ### Stage 4: migrate more controls
 
-Host profiles, engine/pin choices, mapping strategies, and design-parameter
-metadata can move to discovery as useful. Hand-designed widgets remain fine;
-backend validation and identity stay authoritative.
+Mapping strategies (there is one today) and DRAM overrides
+(`supports_overrides` / `override_fields`) have no UI yet. The OFAT grid and
+the build-time knob list still come from `knobs`. The Sweep editor shows the
+parameter catalog's label, unit and description next to each knob.
+Hand-designed widgets remain fine; backend validation and identity stay
+authoritative.
 
 ## Hard-coded frontend values
 
-| Current Rust value | Disposition |
+| Rust value | Disposition |
 |---|---|
-| `DramChoice` names | Migrate to memory discovery |
-| Quantitative memory labels | Migrate; they can drift from operational presets |
-| `cva6` / `ara` host radios | Migrate to host-profile discovery |
-| `cva6` / `snitch` / `spatz` placement choices | Migrate to engine and mapping catalogs |
+| `DramChoice` names and quantitative labels | Migrated to `main_memories` (removed) |
+| `cva6` / `ara` host radios | Migrated to `host_profiles` |
+| `cva6` / `snitch` / `spatz` placement choices | Migrated to `engines` |
 | `mapped` | Harmless UI sentinel for no pin |
-| KWS frontend choices | Keep temporarily; resolve through backend when preview is added |
-| Isolated `ideal`/`real` mode and tuned/autovec choice | Runner-specific UI, not necessarily experiment catalog concepts |
-| Numeric knobs | Already queried; migrate incrementally to richer parameter rows |
+| KWS frontend choices | Kept; resolved through the backend in the preview |
+| Isolated `ideal`/`real` mode and tuned/autovec choice | Runner-specific UI, not experiment catalog concepts |
+| Isolated core list (`cva6`/`snitch`/`spatz`/`ara`) | Runner-specific (`run.py --cores`) |
+| Numeric knobs | Grid from `knobs`; labels/units from `parameters` |
 
 ## Compatibility rules
 
@@ -187,4 +199,8 @@ Before a GUI migration:
 8. keep manifest evidence layers distinct;
 9. run `cargo test` in an existing Rust-capable environment.
 
-The Foundation PR deliberately does not require a broad Rust GUI refactor.
+Tests: `pipeline/tests/test_gui_query.py` and `test_run_manifest.py` pin the
+fields the GUI reads. `gui/tests/fixtures/` holds real bridge, result and
+manifest output. The ignored Docker app tests mount the checkout's sources,
+run Compare and Sweep end to end, and compare the Sweep preview fingerprint
+with the driver's manifest.
