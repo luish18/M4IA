@@ -12,7 +12,7 @@ DBG := $(if $(DEBUG),--debug)
 DBG += $(if $(DRAM),--dram $(DRAM))
 TARGETS := cva6 snitch spatz cva6_real snitch_real spatz_real hetero_soc ara_v2 ara_host hetero_ara hetero_models
 
-.PHONY: run gvsoc smoke ssr-test ara-test mesh-probe mesh-test hetero mnist kws clean \
+.PHONY: run gvsoc smoke ssr-test ara-test mesh-probe mesh-test hetero mnist kws llm clean \
         dram-test dram-xcheck
 
 # Snitch bare-metal test build (the pipeline's snitch flags, minus the
@@ -153,6 +153,16 @@ kws:
 	$(PY) pipeline/kws.py --clips $(CLIPS) $(if $(REUSE),--reuse)
 	$(PY) pipeline/run_hetero.py ops/kws --frontend $(FE) --host $(HOST) \
 	  $(if $(SERIAL),--serial) $(if $(PIN),--pin $(PIN)) $(DBG)
+
+# A tiny language model, decoding token by token: the host owns the KV cache and
+# runs the one-token decode graph once per position.
+#   make llm                       train, export, decode PROBLEMS sums on the SoC
+#   make llm PIN=snitch            pin the graph's nodes, as with mnist
+# REUSE=1 keeps the committed network.onnx and only rebuilds the problems.
+PROBLEMS ?= 8
+llm:
+	$(PY) pipeline/llm.py --problems $(PROBLEMS) $(if $(REUSE),--reuse)
+	$(PY) pipeline/run_hetero.py ops/llm --host $(HOST) $(if $(PIN),--pin $(PIN)) $(DBG)
 
 # Main-memory device model (targets/hetero/dram_core.hpp): hand-computed JEDEC
 # timing cases, then every preset against the Python mirror that the headers
