@@ -40,6 +40,7 @@ RESULTS = ROOT / "results"
 APPS = {
     "mnist": {"header": "mnist_data.h", "main": "mnist_main.c", "unit": "image"},
     "kws": {"header": "kws_data.h", "main": "kws_main.c", "unit": "clip"},
+    "llm": {"header": "llm_data.h", "main": "llm_main.c", "unit": "problem"},
 }
 
 

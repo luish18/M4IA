@@ -189,6 +189,21 @@ def generate_c(test_dir: Path, gen_dir: Path) -> None:
         sys.exit(f"Deeploy codegen failed:\n{r.stdout}\n{r.stderr}")
 
 
+# What ld prints when the data does not fit the scratchpad. The snitch and
+# spatz boards keep all data -- weights included -- in their 128 KiB cluster
+# TCDM, so a large enough network cannot be built for them at all.
+TCDM_OVERFLOW_RE = re.compile(r"region `TCDM' overflowed by (\d+) bytes")
+
+
+class DoesNotFit(Exception):
+    """The network's data cannot be linked into this core's TCDM."""
+
+    def __init__(self, core: str, overflow_bytes: int):
+        super().__init__(core, overflow_bytes)
+        self.core = core
+        self.overflow_bytes = overflow_bytes
+
+
 def build(core: Core, gen_dir: Path, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     elf = out_dir / "net.elf"
@@ -225,6 +240,9 @@ def build(core: Core, gen_dir: Path, out_dir: Path) -> Path:
             *[str(o) for o in objs], *LINK_LIBS, "-o", str(elf)],
            produces=[elf])
     if r.returncode != 0:
+        m = TCDM_OVERFLOW_RE.search(r.stderr)
+        if m:
+            raise DoesNotFit(core.name, int(m.group(1)))
         sys.exit(f"[{core.name}] link failed:\n{r.stderr}")
     return elf
 
@@ -439,7 +457,18 @@ def main():
         core = CORES[cname]
         print(f"[2/3] build + [3/3] simulate: {cname} "
               f"({i + 1}/{len(cores)})", flush=True)
-        elf = build(core, gen_dir, work / cname)
+        try:
+            elf = build(core, gen_dir, work / cname)
+        except DoesNotFit as e:
+            # Not a failure of the run: this board cannot hold this network.
+            # Say so for this core and keep the others' results.
+            print(f"  {cname}: the network's data does not fit the cluster TCDM "
+                  f"(over by {e.overflow_bytes} bytes); this board keeps all data "
+                  f"in TCDM. Run it on the SoC (run_hetero.py), where weights "
+                  f"stay in main memory.", flush=True)
+            results.append({"core": cname, "status": "does-not-fit",
+                            "tcdm_overflow_bytes": e.overflow_bytes})
+            continue
         # The binary does not depend on the memory model, only the target does,
         # so runs of the two models keep their logs side by side.
         results.append(simulate(core, args.memory, elf,

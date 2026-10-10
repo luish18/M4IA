@@ -57,6 +57,11 @@ KWS_RE = re.compile(
     r"mfcc_maxdiff_e6=(\d+) cycles_total=(\d+) cycles_per_clip=(\d+) "
     r"frontend_engine=(\d+) frontend_busy=(\d+) frontend_wait=(\d+) hidden=(\d+) "
     r"snitch_busy=(\d+) spatz_busy=(\d+) pipelined=(\d+) offload_failures=(\d+)")
+LLM_RE = re.compile(
+    r"\[HES-LLM\] problems=(\d+) correct=(\d+) agree_with_onnx=(\d+) steps=(\d+) "
+    r"cycles_total=(\d+) cycles_per_step=(\d+) prompt_cycles=(\d+) "
+    r"answer_cycles=(\d+) host_cycles=(\d+) offload_failures=(\d+)")
+LLM_POS_RE = re.compile(r"\[HES-LLM-POS\] pos=(\d+) cycles=(\d+)")
 # The energy fields are optional: they are only non-zero under --power, and a
 # run without it still prints them as 0. Matching them optionally also keeps
 # this regex working against logs captured before the caches were instrumented.
@@ -178,6 +183,8 @@ def simulate(elfs: dict, run_dir: Path, total_nodes: int, timeout_s: int,
     drams, writebacks = [], {}
     mnist_result = None
     kws_result = None
+    llm_result = None
+    llm_pos = {}
     stalled = False
     t_start = time.time()
 
@@ -218,6 +225,14 @@ def simulate(elfs: dict, run_dir: Path, total_nodes: int, timeout_s: int,
             m = KWS_RE.search(line)
             if m:
                 kws_result = m
+                continue
+            m = LLM_RE.search(line)
+            if m:
+                llm_result = m
+                continue
+            m = LLM_POS_RE.search(line)
+            if m:
+                llm_pos[int(m.group(1))] = int(m.group(2))
                 continue
             m = MEM_RE.search(line)
             if m:
@@ -310,6 +325,29 @@ def simulate(elfs: dict, run_dir: Path, total_nodes: int, timeout_s: int,
         out["status"] = ("ok" if (agree == clips and fails == 0
                                   and out["mfcc_maxdiff"] <= 1e-3)
                          else "wrong-result")
+    if llm_result is not None:
+        (problems, correct, agree, steps, total, per_step, prompt_cyc, answer_cyc,
+         host_cyc, fails) = (int(g) for g in llm_result.groups())
+        out.update({
+            "problems": problems,
+            "correct": correct,
+            "agree_with_onnx": agree,
+            "steps": steps,
+            "cycles": total,
+            "cycles_per_step": per_step,
+            "prompt_cycles": prompt_cyc,
+            "answer_cycles": answer_cyc,
+            # Embedding, mask/sel staging, cache copies and argmax: decoding
+            # work the host does outside any graph node.
+            "host_cycles": host_cyc,
+            # Network cycles per decode position, averaged over problems.
+            "cycles_per_position": [llm_pos[t] for t in sorted(llm_pos)],
+            "accuracy": round(correct / problems, 4) if problems else None,
+            "offload_failures": fails,
+        })
+        # A wrong sum is the model's business; a token onnxruntime would not
+        # have picked is the chip's.
+        out["status"] = "ok" if (agree == problems and fails == 0) else "wrong-result"
     if caches:
         out["caches"] = [{
             "cache": m.group(1).split("/")[-1],
@@ -383,7 +421,22 @@ def report(op_name: str, mapping: dict, res: dict, out_path = None) -> None:
         print(f"\nfront-end {res['frontend_busy']} cycles, of which "
               f"{res['hidden_cycles']} ({pct:.1f}%) overlapped the classifier "
               f"and cost no wall time")
-    if res["status"] == "ok" and "images" not in res and "clips" not in res:
+    if "problems" in res:
+        print(f"problems {res['problems']}   correct {res['correct']} "
+              f"({100 * res['accuracy']:.1f}%)   agreeing with onnxruntime "
+              f"{res['agree_with_onnx']}/{res['problems']}")
+        print(f"cycles   {res['cycles']} total, {res['cycles_per_step']} per decode "
+              f"step ({res['steps']} steps)")
+        net = res["prompt_cycles"] + res["answer_cycles"]
+        print(f"         prompt steps {res['prompt_cycles']}, answer steps "
+              f"{res['answer_cycles']}, host bookkeeping {res['host_cycles']} "
+              f"({100 * res['host_cycles'] / (net + res['host_cycles']):.1f}%)"
+              if net + res["host_cycles"] else "")
+        per_pos = res["cycles_per_position"]
+        if per_pos:
+            print("position " + " ".join(f"{t:>7}" for t in range(len(per_pos))))
+            print("cycles   " + " ".join(f"{c:>7}" for c in per_pos))
+    if res["status"] == "ok" and not {"images", "clips", "problems"} & set(res):
         print(f"status   ok       cycles={res['cycles']}  maxdiff={res.get('maxdiff')}")
     elif res["status"] == "ok":
         print("\nstatus   ok")
